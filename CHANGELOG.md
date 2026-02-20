@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Harden runtime startup and add SSHCluster unit tests
 - **python:** Keep liveness enabled in hardened entrypoint
 - **python:** Harden runtime startup by removing uv run from ENTRYPOINT
+- **ci:** Address PR feedback and stabilize workflow checks
+- **python:** Make package README available in docker build context
+- **ci:** Unblock Docker build and publish on internal PRs
 
 ### Features
 
@@ -20,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Implement SSHCluster controller
 - **python:** Implement SSH client wrapper
 - **python:** Implement SSHMachine controller
+- **ci:** Split #12 into CI and container workflows
 
 ### Miscellaneous
 
