@@ -8,9 +8,12 @@ import pytest
 from capi_provider_ssh.controllers.sshmachine import (
     _choose_host,
     _has_machine_owner,
+    _inject_external_etcd_into_bootstrap_data,
     _is_already_provisioned,
+    _normalize_external_etcd,
     _release_host,
     sshmachine_delete,
+    sshmachine_reboot,
     sshmachine_reconcile,
 )
 from capi_provider_ssh.ssh import SSHResult
@@ -513,3 +516,242 @@ class TestReleaseHost:
             # Should not raise
             await _release_host(spec, "m1", "default")
             mock_api.patch_namespaced_custom_object.assert_not_called()
+
+
+class TestExternalEtcdConfig:
+    def test_normalize_external_etcd_valid(self):
+        spec = {
+            "externalEtcd": {
+                "endpoints": ["https://10.0.0.10:2379", "https://10.0.0.11:2379"],
+                "caCertRef": {"name": "etcd-ca"},
+                "clientCertRef": {"name": "etcd-client-cert"},
+                "clientKeyRef": {"name": "etcd-client-key"},
+            },
+        }
+        cfg = _normalize_external_etcd(spec)
+        assert cfg is not None
+        assert cfg["servers"] == "https://10.0.0.10:2379,https://10.0.0.11:2379"
+        assert cfg["ca_file"] == "/etc/kubernetes/pki/etcd-external/ca.crt"
+
+    def test_normalize_external_etcd_invalid_endpoints(self):
+        spec = {
+            "externalEtcd": {
+                "endpoints": [],
+                "caCertRef": {"name": "etcd-ca"},
+                "clientCertRef": {"name": "etcd-client-cert"},
+                "clientKeyRef": {"name": "etcd-client-key"},
+            },
+        }
+        with pytest.raises(kopf.PermanentError, match="externalEtcd.endpoints"):
+            _normalize_external_etcd(spec)
+
+    def test_inject_external_etcd_into_bootstrap_data(self):
+        bootstrap = """#!/bin/bash
+cat > /run/kubeadm/kubeadm.yaml <<'EOF'
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+apiServer:
+  extraArgs: {}
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+nodeRegistration:
+  name: cp-0
+EOF
+kubeadm init --config /run/kubeadm/kubeadm.yaml
+"""
+        external = {
+            "servers": "https://10.0.0.10:2379,https://10.0.0.11:2379",
+            "ca_file": "/etc/kubernetes/pki/etcd-external/ca.crt",
+            "cert_file": "/etc/kubernetes/pki/etcd-external/client.crt",
+            "key_file": "/etc/kubernetes/pki/etcd-external/client.key",
+        }
+        patched, changed = _inject_external_etcd_into_bootstrap_data(bootstrap, external)
+        assert changed is True
+        assert "etcd-servers: https://10.0.0.10:2379,https://10.0.0.11:2379" in patched
+        assert "etcd-cafile: /etc/kubernetes/pki/etcd-external/ca.crt" in patched
+        assert "etcd-certfile: /etc/kubernetes/pki/etcd-external/client.crt" in patched
+        assert "etcd-keyfile: /etc/kubernetes/pki/etcd-external/client.key" in patched
+
+    def test_inject_external_etcd_requires_cluster_configuration(self):
+        bootstrap = """#!/bin/bash
+echo "no kubeadm yaml here"
+"""
+        external = {
+            "servers": "https://10.0.0.10:2379",
+            "ca_file": "/etc/kubernetes/pki/etcd-external/ca.crt",
+            "cert_file": "/etc/kubernetes/pki/etcd-external/client.crt",
+            "key_file": "/etc/kubernetes/pki/etcd-external/client.key",
+        }
+        with pytest.raises(kopf.PermanentError, match="no kubeadm ClusterConfiguration"):
+            _inject_external_etcd_into_bootstrap_data(bootstrap, external)
+
+
+class TestSSHMachineReboot:
+    @pytest.mark.asyncio
+    async def test_reboot_success_sets_status(self):
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+        }
+        patch_obj = kopf.Patch({})
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=0, stdout="ok", stderr="")
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            await sshmachine_reboot(
+                old=None,
+                new="2026-02-20T16:00:00Z",
+                spec=spec,
+                name="m1",
+                namespace="default",
+                patch=patch_obj,
+            )
+
+        status = patch_obj["status"]["remediation"]["reboot"]
+        assert status["lastRequestedAt"] == "2026-02-20T16:00:00Z"
+        assert status["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_reboot_missing_address_does_not_raise(self):
+        spec = {
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+        }
+        patch_obj = kopf.Patch({})
+        await sshmachine_reboot(
+            old=None,
+            new="2026-02-20T16:10:00Z",
+            spec=spec,
+            name="m1",
+            namespace="default",
+            patch=patch_obj,
+        )
+        status = patch_obj["status"]["remediation"]["reboot"]
+        assert status["success"] is False
+
+
+class TestSSHMachineExternalEtcdReconcile:
+    @pytest.mark.asyncio
+    async def test_external_etcd_bootstrap_injection_and_cert_upload(self, sshmachine_meta_with_owner):
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+            "externalEtcd": {
+                "endpoints": ["https://10.0.0.10:2379", "https://10.0.0.11:2379"],
+                "caCertRef": {"name": "etcd-ca"},
+                "clientCertRef": {"name": "etcd-client-cert"},
+                "clientKeyRef": {"name": "etcd-client-key"},
+            },
+        }
+        bootstrap = """#!/bin/bash
+cat > /run/kubeadm/kubeadm.yaml <<'EOF'
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+apiServer:
+  extraArgs: {}
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+nodeRegistration:
+  name: cp-0
+EOF
+kubeadm init --config /run/kubeadm/kubeadm.yaml
+"""
+
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=0, stdout="ok", stderr="")
+        mock_conn.upload = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value=bootstrap,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._upload_external_etcd_certs",
+                new_callable=AsyncMock,
+                return_value=None,
+            ) as mock_upload_certs,
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=spec,
+                status={},
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+
+        mock_upload_certs.assert_called_once()
+        uploaded_script = mock_conn.upload.call_args[0][0]
+        assert "etcd-servers: https://10.0.0.10:2379,https://10.0.0.11:2379" in uploaded_script
+
+    @pytest.mark.asyncio
+    async def test_reboot_command_failure_requeues(self):
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+        }
+        patch_obj = kopf.Patch({})
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=1, stdout="", stderr="reboot failed")
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+            pytest.raises(kopf.TemporaryError, match="reboot remediation command failed"),
+        ):
+            await sshmachine_reboot(
+                old=None,
+                new="2026-02-20T16:20:00Z",
+                spec=spec,
+                name="m1",
+                namespace="default",
+                patch=patch_obj,
+            )
+
+        status = patch_obj["status"]["remediation"]["reboot"]
+        assert status["success"] is False

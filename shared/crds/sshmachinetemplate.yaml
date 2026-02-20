@@ -62,6 +62,59 @@ spec:
                               additionalProperties:
                                 type: string
                               description: Labels that SSHHost CRs must match.
+                        externalEtcd:
+                          type: object
+                          description: >-
+                            Optional external etcd wiring. When set, the controller
+                            distributes certs and injects kubeadm apiServer etcd args.
+                          properties:
+                            endpoints:
+                              type: array
+                              minItems: 1
+                              items:
+                                type: string
+                            caCertRef:
+                              type: object
+                              required:
+                                - name
+                              properties:
+                                name:
+                                  type: string
+                                key:
+                                  type: string
+                                  default: value
+                            clientCertRef:
+                              type: object
+                              required:
+                                - name
+                              properties:
+                                name:
+                                  type: string
+                                key:
+                                  type: string
+                                  default: value
+                            clientKeyRef:
+                              type: object
+                              required:
+                                - name
+                              properties:
+                                name:
+                                  type: string
+                                key:
+                                  type: string
+                                  default: value
+                            files:
+                              type: object
+                              properties:
+                                caFile:
+                                  type: string
+                                  default: /etc/kubernetes/pki/etcd-external/ca.crt
+                                certFile:
+                                  type: string
+                                  default: /etc/kubernetes/pki/etcd-external/client.crt
+                                keyFile:
+                                  type: string
+                                  default: /etc/kubernetes/pki/etcd-external/client.key
   scope: Namespaced
   names:
     plural: sshmachinetemplates

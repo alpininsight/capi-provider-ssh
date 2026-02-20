@@ -7,16 +7,25 @@ This is the core controller of the provider. It handles:
 - Status management (providerID, addresses, conditions)
 """
 
+import base64
 import datetime
 import logging
+import posixpath
+import re
+import shlex
 
 import kopf
 import kubernetes
+import yaml
 
 from capi_provider_ssh import API_GROUP, API_VERSION
 from capi_provider_ssh.ssh import SSHClient
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_EXTERNAL_ETCD_CA_FILE = "/etc/kubernetes/pki/etcd-external/ca.crt"
+DEFAULT_EXTERNAL_ETCD_CERT_FILE = "/etc/kubernetes/pki/etcd-external/client.crt"
+DEFAULT_EXTERNAL_ETCD_KEY_FILE = "/etc/kubernetes/pki/etcd-external/client.key"
 
 
 def _now_iso() -> str:
@@ -69,8 +78,6 @@ async def _read_ssh_key(namespace: str, secret_name: str, secret_key: str = "val
     secret = api.read_namespaced_secret(name=secret_name, namespace=namespace)
     if secret.data is None or secret_key not in secret.data:
         raise kopf.PermanentError(f"Secret {namespace}/{secret_name} missing key '{secret_key}'")
-    import base64
-
     return base64.b64decode(secret.data[secret_key]).decode("utf-8")
 
 
@@ -109,9 +116,221 @@ async def _read_bootstrap_data(namespace: str, machine_name: str) -> str | None:
     if secret.data is None or "value" not in secret.data:
         return None
 
-    import base64
-
     return base64.b64decode(secret.data["value"]).decode("utf-8")
+
+
+async def _read_secret_value(namespace: str, secret_name: str, secret_key: str = "value") -> str:
+    """Read arbitrary secret data as UTF-8 text."""
+    api = kubernetes.client.CoreV1Api()
+    secret = api.read_namespaced_secret(name=secret_name, namespace=namespace)
+    if secret.data is None or secret_key not in secret.data:
+        raise kopf.PermanentError(f"Secret {namespace}/{secret_name} missing key '{secret_key}'")
+    return base64.b64decode(secret.data[secret_key]).decode("utf-8")
+
+
+def _required_secret_ref(config: dict, field: str) -> tuple[str, str]:
+    """Resolve a required Secret key ref in ``{name,key}`` shape."""
+    ref = config.get(field, {})
+    if not isinstance(ref, dict):
+        raise kopf.PermanentError(f"externalEtcd.{field} must be an object with name/key")
+    name = ref.get("name")
+    if not name:
+        raise kopf.PermanentError(f"externalEtcd.{field}.name is required")
+    key = ref.get("key", "value")
+    if not isinstance(key, str) or not key:
+        raise kopf.PermanentError(f"externalEtcd.{field}.key must be a non-empty string")
+    return name, key
+
+
+def _normalize_external_etcd(spec: dict) -> dict | None:
+    """Validate and normalize optional externalEtcd configuration."""
+    config = spec.get("externalEtcd")
+    if not config:
+        return None
+    if not isinstance(config, dict):
+        raise kopf.PermanentError("externalEtcd must be an object")
+
+    endpoints = config.get("endpoints")
+    if not isinstance(endpoints, list) or not endpoints:
+        raise kopf.PermanentError("externalEtcd.endpoints must be a non-empty list")
+    normalized_endpoints: list[str] = []
+    for endpoint in endpoints:
+        if not isinstance(endpoint, str) or not endpoint:
+            raise kopf.PermanentError("externalEtcd.endpoints entries must be non-empty strings")
+        normalized_endpoints.append(endpoint)
+
+    files = config.get("files", {}) or {}
+    if not isinstance(files, dict):
+        raise kopf.PermanentError("externalEtcd.files must be an object when set")
+    ca_file = files.get("caFile", DEFAULT_EXTERNAL_ETCD_CA_FILE)
+    cert_file = files.get("certFile", DEFAULT_EXTERNAL_ETCD_CERT_FILE)
+    key_file = files.get("keyFile", DEFAULT_EXTERNAL_ETCD_KEY_FILE)
+    for path, field in (
+        (ca_file, "caFile"),
+        (cert_file, "certFile"),
+        (key_file, "keyFile"),
+    ):
+        if not isinstance(path, str) or not path.startswith("/"):
+            raise kopf.PermanentError(f"externalEtcd.files.{field} must be an absolute path")
+
+    return {
+        "endpoints": normalized_endpoints,
+        "servers": ",".join(normalized_endpoints),
+        "ca_ref": _required_secret_ref(config, "caCertRef"),
+        "cert_ref": _required_secret_ref(config, "clientCertRef"),
+        "key_ref": _required_secret_ref(config, "clientKeyRef"),
+        "ca_file": ca_file,
+        "cert_file": cert_file,
+        "key_file": key_file,
+    }
+
+
+def _patch_external_etcd_in_kubeadm_yaml(yaml_text: str, external_etcd: dict) -> tuple[str, bool, bool]:
+    """Patch kubeadm ClusterConfiguration with external etcd API server arguments."""
+    try:
+        docs = [doc for doc in yaml.safe_load_all(yaml_text) if doc is not None]
+    except yaml.YAMLError:
+        return yaml_text, False, False
+
+    if not docs:
+        return yaml_text, False, False
+
+    saw_cluster_configuration = False
+    changed = False
+    for doc in docs:
+        if not isinstance(doc, dict) or doc.get("kind") != "ClusterConfiguration":
+            continue
+        saw_cluster_configuration = True
+
+        api_server = doc.setdefault("apiServer", {})
+        if not isinstance(api_server, dict):
+            raise kopf.PermanentError("kubeadm ClusterConfiguration.apiServer must be a mapping")
+        extra_args = api_server.setdefault("extraArgs", {})
+        if not isinstance(extra_args, dict):
+            raise kopf.PermanentError("kubeadm ClusterConfiguration.apiServer.extraArgs must be a mapping")
+
+        desired_args = {
+            "etcd-servers": external_etcd["servers"],
+            "etcd-cafile": external_etcd["ca_file"],
+            "etcd-certfile": external_etcd["cert_file"],
+            "etcd-keyfile": external_etcd["key_file"],
+        }
+        for key, value in desired_args.items():
+            if extra_args.get(key) != value:
+                extra_args[key] = value
+                changed = True
+
+    if not changed:
+        return yaml_text, saw_cluster_configuration, False
+
+    rendered = yaml.safe_dump_all(docs, sort_keys=False).rstrip("\n")
+    return rendered, saw_cluster_configuration, True
+
+
+def _parse_heredoc_start(line: str) -> tuple[str, str] | None:
+    """Parse shell heredoc forms used for writing files in bootstrap scripts."""
+    direct = re.match(r'^\s*cat\s+>\s*(?P<path>\S+)\s+<<\s*["\']?(?P<tag>[A-Za-z_][A-Za-z0-9_]*)["\']?\s*$', line)
+    if direct:
+        return direct.group("path"), direct.group("tag")
+
+    reverse = re.match(r'^\s*cat\s+<<\s*["\']?(?P<tag>[A-Za-z_][A-Za-z0-9_]*)["\']?\s+>\s*(?P<path>\S+)\s*$', line)
+    if reverse:
+        return reverse.group("path"), reverse.group("tag")
+
+    return None
+
+
+def _inject_external_etcd_into_bootstrap_data(bootstrap_data: str, external_etcd: dict) -> tuple[str, bool]:
+    """Inject external etcd wiring into kubeadm ClusterConfiguration heredocs."""
+    lines = bootstrap_data.splitlines()
+    output: list[str] = []
+    idx = 0
+    saw_cluster_configuration = False
+    changed_any = False
+
+    while idx < len(lines):
+        line = lines[idx]
+        heredoc = _parse_heredoc_start(line)
+        if not heredoc:
+            output.append(line)
+            idx += 1
+            continue
+
+        path, tag = heredoc
+        output.append(line)
+        idx += 1
+
+        body_lines: list[str] = []
+        while idx < len(lines) and lines[idx].strip() != tag:
+            body_lines.append(lines[idx])
+            idx += 1
+
+        if idx >= len(lines):
+            output.extend(body_lines)
+            break
+
+        if "kubeadm" in path and path.endswith((".yaml", ".yml")):
+            body_text = "\n".join(body_lines)
+            patched_text, saw_here, changed_here = _patch_external_etcd_in_kubeadm_yaml(body_text, external_etcd)
+            saw_cluster_configuration = saw_cluster_configuration or saw_here
+            changed_any = changed_any or changed_here
+            if saw_here:
+                body_lines = patched_text.splitlines()
+
+        output.extend(body_lines)
+        output.append(lines[idx])
+        idx += 1
+
+    if not saw_cluster_configuration:
+        raise kopf.PermanentError(
+            "externalEtcd is configured but bootstrap data has no kubeadm ClusterConfiguration to wire",
+        )
+
+    rendered = "\n".join(output)
+    if bootstrap_data.endswith("\n"):
+        rendered += "\n"
+    return rendered, changed_any
+
+
+async def _upload_external_etcd_certs(conn, namespace: str, external_etcd: dict) -> None:
+    """Upload external etcd cert material to deterministic paths on the target host."""
+    ca_value = await _read_secret_value(namespace, *external_etcd["ca_ref"])
+    cert_value = await _read_secret_value(namespace, *external_etcd["cert_ref"])
+    key_value = await _read_secret_value(namespace, *external_etcd["key_ref"])
+
+    dirs = sorted(
+        {
+            posixpath.dirname(external_etcd["ca_file"]),
+            posixpath.dirname(external_etcd["cert_file"]),
+            posixpath.dirname(external_etcd["key_file"]),
+        },
+    )
+    for directory in dirs:
+        result = await conn.execute(f"install -d -m 0700 {shlex.quote(directory)}")
+        if not result.success:
+            raise kopf.TemporaryError(f"failed to create external etcd directory {directory}", delay=30)
+
+    await conn.upload(ca_value, external_etcd["ca_file"])
+    await conn.upload(cert_value, external_etcd["cert_file"])
+    await conn.upload(key_value, external_etcd["key_file"])
+
+    chmod_cmd = (
+        f"chmod 0644 {shlex.quote(external_etcd['ca_file'])} {shlex.quote(external_etcd['cert_file'])} "
+        f"&& chmod 0600 {shlex.quote(external_etcd['key_file'])}"
+    )
+    chmod_result = await conn.execute(chmod_cmd)
+    if not chmod_result.success:
+        raise kopf.TemporaryError("failed to set external etcd certificate file permissions", delay=30)
+
+
+def _set_reboot_status(patch, requested_at: str, success: bool, message: str) -> None:
+    patch.status.setdefault("remediation", {})
+    patch.status["remediation"]["reboot"] = {
+        "lastRequestedAt": requested_at,
+        "lastCompletedAt": _now_iso(),
+        "success": success,
+        "message": message,
+    }
 
 
 def _is_already_provisioned(status: dict, expected_provider_id: str) -> bool:
@@ -457,6 +676,30 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
         ]
         raise kopf.TemporaryError("Bootstrap data not ready", delay=15)
 
+    # Optional external-etcd wiring and cert distribution configuration.
+    try:
+        external_etcd = _normalize_external_etcd(spec)
+    except kopf.PermanentError as e:
+        patch.status["failureReason"] = "ExternalEtcdConfigurationError"
+        patch.status["failureMessage"] = str(e)
+        patch.status["conditions"] = [
+            _not_ready_condition("ExternalEtcdConfigurationError", str(e)),
+        ]
+        raise
+
+    if external_etcd:
+        try:
+            bootstrap_data, changed = _inject_external_etcd_into_bootstrap_data(bootstrap_data, external_etcd)
+            if changed:
+                logger.info("SSHMachine %s/%s patched bootstrap data with external etcd wiring", namespace, name)
+        except kopf.PermanentError as e:
+            patch.status["failureReason"] = "ExternalEtcdWiringError"
+            patch.status["failureMessage"] = str(e)
+            patch.status["conditions"] = [
+                _not_ready_condition("ExternalEtcdWiringError", str(e)),
+            ]
+            raise
+
     # Read SSH key -- use patched sshKeyRef if set by host claim, otherwise from spec
     ssh_key_ref = patch.spec.get("sshKeyRef", spec.get("sshKeyRef", {}))
     secret_name = ssh_key_ref.get("name")
@@ -485,6 +728,24 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
     # SSH bootstrap
     try:
         async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
+            if external_etcd:
+                try:
+                    await _upload_external_etcd_certs(conn, namespace, external_etcd)
+                except kopf.PermanentError as e:
+                    patch.status["failureReason"] = "ExternalEtcdCertError"
+                    patch.status["failureMessage"] = str(e)
+                    patch.status["conditions"] = [
+                        _not_ready_condition("ExternalEtcdCertError", str(e)),
+                    ]
+                    raise
+                except kopf.TemporaryError as e:
+                    patch.status["failureReason"] = "ExternalEtcdCertUploadError"
+                    patch.status["failureMessage"] = str(e)
+                    patch.status["conditions"] = [
+                        _not_ready_condition("ExternalEtcdCertUploadError", str(e)),
+                    ]
+                    raise
+
             # Upload bootstrap script
             await conn.upload(bootstrap_data, "/tmp/bootstrap.sh")  # noqa: S108
 
@@ -577,6 +838,60 @@ async def sshmachine_delete(spec, name, namespace, **_kwargs):
     except Exception as e:
         # Cleanup failures must not block finalizer removal
         logger.warning("SSHMachine %s/%s SSH cleanup error on %s: %s", namespace, name, address, e)
+
+
+@kopf.on.field(API_GROUP, API_VERSION, "sshmachines", field="spec.remediation.reboot.requestedAt")
+async def sshmachine_reboot(old, new, spec, name, namespace, patch, **_kwargs):
+    """Handle explicit in-band reboot requests for remediation."""
+    if not new or new == old:
+        return
+
+    if spec.get("paused"):
+        _set_reboot_status(patch, str(new), False, "Machine is paused; reboot request ignored")
+        return
+
+    address = spec.get("address")
+    port = spec.get("port", 22)
+    user = spec.get("user", "root")
+    ssh_key_ref = spec.get("sshKeyRef", {})
+    secret_name = ssh_key_ref.get("name")
+    secret_key = ssh_key_ref.get("key", "value")
+
+    if not address or not secret_name:
+        _set_reboot_status(
+            patch,
+            str(new),
+            False,
+            "Missing spec.address or spec.sshKeyRef.name; cannot perform reboot remediation",
+        )
+        return
+
+    try:
+        ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
+    except Exception as e:
+        _set_reboot_status(patch, str(new), False, f"Failed to read SSH key: {e}")
+        return
+
+    try:
+        async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
+            reboot_cmd = "nohup sh -c 'sleep 2; (systemctl reboot || reboot)' >/dev/null 2>&1 &"
+            result = await conn.execute(reboot_cmd)
+            if not result.success:
+                _set_reboot_status(
+                    patch,
+                    str(new),
+                    False,
+                    f"Reboot command failed with exit code {result.exit_code}",
+                )
+                raise kopf.TemporaryError("reboot remediation command failed", delay=30)
+    except kopf.TemporaryError:
+        raise
+    except Exception as e:
+        _set_reboot_status(patch, str(new), False, f"SSH reboot remediation failed: {e}")
+        raise kopf.TemporaryError(f"SSH reboot remediation failed: {e}", delay=30) from e
+
+    _set_reboot_status(patch, str(new), True, "Reboot command submitted")
+    logger.info("SSHMachine %s/%s reboot remediation requested at %s", namespace, name, new)
 
 
 @kopf.on.field(API_GROUP, API_VERSION, "sshmachines", field="spec.paused")
