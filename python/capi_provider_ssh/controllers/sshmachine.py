@@ -3,6 +3,7 @@
 This is the core controller of the provider. It handles:
 - Bootstrap via SSH (kubeadm init/join)
 - Cleanup via SSH (kubeadm reset)
+- Host selection from SSHHost pool (Metal3-style inventory)
 - Status management (providerID, addresses, conditions)
 """
 
@@ -123,6 +124,135 @@ def _is_already_provisioned(status: dict, expected_provider_id: str) -> bool:
     return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
 
 
+async def _choose_host(spec: dict, name: str, namespace: str, patch) -> bool:
+    """Select and claim an SSHHost from the pool based on hostSelector.
+
+    Returns True if a host was claimed (or address was already set).
+    Returns False if no host is available (caller should requeue).
+    """
+    # If address is already set (direct mode or previously claimed), nothing to do
+    if spec.get("address"):
+        return True
+
+    host_selector = spec.get("hostSelector")
+    if not host_selector:
+        # No hostSelector and no address -- invalid configuration
+        patch.status["failureReason"] = "InvalidConfiguration"
+        patch.status["failureMessage"] = "Either address or hostSelector must be provided"
+        patch.status["conditions"] = [
+            _not_ready_condition("InvalidConfiguration", "Either address or hostSelector must be provided"),
+        ]
+        raise kopf.PermanentError("Either address or hostSelector must be provided")
+
+    match_labels = host_selector.get("matchLabels", {})
+    if not match_labels:
+        raise kopf.PermanentError("hostSelector.matchLabels must not be empty")
+
+    # List all SSHHost CRs in the namespace
+    api = kubernetes.client.CustomObjectsApi()
+    hosts = api.list_namespaced_custom_object(
+        group=API_GROUP,
+        version=API_VERSION,
+        namespace=namespace,
+        plural="sshhosts",
+    )
+
+    # Filter by matchLabels and find unclaimed hosts
+    for host in hosts.get("items", []):
+        host_labels = host.get("metadata", {}).get("labels", {})
+        # Check all selector labels match
+        if not all(host_labels.get(k) == v for k, v in match_labels.items()):
+            continue
+        # Check if host is unclaimed (consumerRef is empty or absent)
+        consumer_ref = host.get("spec", {}).get("consumerRef", {})
+        if consumer_ref and consumer_ref.get("name"):
+            continue
+
+        # Claim this host
+        host_name = host["metadata"]["name"]
+        host_spec = host.get("spec", {})
+
+        # Set consumerRef on the SSHHost
+        api.patch_namespaced_custom_object(
+            group=API_GROUP,
+            version=API_VERSION,
+            namespace=namespace,
+            plural="sshhosts",
+            name=host_name,
+            body={
+                "spec": {
+                    "consumerRef": {
+                        "kind": "SSHMachine",
+                        "name": name,
+                        "namespace": namespace,
+                    },
+                },
+                "status": {
+                    "inUse": True,
+                },
+            },
+        )
+
+        # Copy host details to the SSHMachine
+        patch.spec["address"] = host_spec["address"]
+        patch.spec["user"] = host_spec.get("user", "root")
+        patch.spec["sshKeyRef"] = host_spec.get("sshKeyRef", {})
+        patch.spec["hostRef"] = f"{namespace}/{host_name}"
+
+        logger.info(
+            "SSHMachine %s/%s claimed SSHHost %s (address=%s)",
+            namespace,
+            name,
+            host_name,
+            host_spec["address"],
+        )
+        return True
+
+    # No available host found
+    patch.status["initialization"] = {"provisioned": False}
+    patch.status["conditions"] = [
+        _not_ready_condition("HostNotAvailable", f"No unclaimed SSHHost matching {match_labels}"),
+    ]
+    raise kopf.TemporaryError(f"No available SSHHost matching {match_labels}", delay=30)
+
+
+async def _release_host(spec: dict, name: str, namespace: str) -> None:
+    """Release the claimed SSHHost by clearing its consumerRef."""
+    host_ref = spec.get("hostRef")
+    if not host_ref:
+        return
+
+    try:
+        host_ns, host_name = host_ref.split("/", 1)
+    except ValueError:
+        logger.warning("SSHMachine %s/%s has malformed hostRef: %s", namespace, name, host_ref)
+        return
+
+    api = kubernetes.client.CustomObjectsApi()
+    try:
+        api.patch_namespaced_custom_object(
+            group=API_GROUP,
+            version=API_VERSION,
+            namespace=host_ns,
+            plural="sshhosts",
+            name=host_name,
+            body={
+                "spec": {
+                    "consumerRef": {},
+                },
+                "status": {
+                    "inUse": False,
+                },
+            },
+        )
+        logger.info("SSHMachine %s/%s released SSHHost %s", namespace, name, host_ref)
+    except kubernetes.client.ApiException as e:
+        if e.status == 404:
+            logger.warning("SSHHost %s not found during release (already deleted?)", host_ref)
+        else:
+            logger.warning("Failed to release SSHHost %s: %s", host_ref, e)
+
+
 @kopf.on.create(API_GROUP, API_VERSION, "sshmachines")
 @kopf.on.update(API_GROUP, API_VERSION, "sshmachines")
 async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kwargs):
@@ -147,10 +277,16 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
     machine_ref = _get_machine_owner_ref(owner_refs)
     machine_name = machine_ref["name"]
 
-    # Set providerID
-    address = spec["address"]
+    # Host selection: claim an SSHHost if using hostSelector mode
+    await _choose_host(spec, name, namespace, patch)
+
+    # At this point, address must be set (either direct or from host claim)
+    address = patch.spec.get("address", spec.get("address"))
+    if not address:
+        raise kopf.PermanentError("address is not set after host selection")
+
     port = spec.get("port", 22)
-    user = spec.get("user", "root")
+    user = patch.spec.get("user", spec.get("user", "root"))
     provider_id = f"ssh://{address}"
 
     # Idempotency: skip if already provisioned
@@ -168,8 +304,8 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
         ]
         raise kopf.TemporaryError("Bootstrap data not ready", delay=15)
 
-    # Read SSH key
-    ssh_key_ref = spec.get("sshKeyRef", {})
+    # Read SSH key -- use patched sshKeyRef if set by host claim, otherwise from spec
+    ssh_key_ref = patch.spec.get("sshKeyRef", spec.get("sshKeyRef", {}))
     secret_name = ssh_key_ref.get("name")
     secret_key = ssh_key_ref.get("key", "value")
 
@@ -247,8 +383,11 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
 
 @kopf.on.delete(API_GROUP, API_VERSION, "sshmachines")
 async def sshmachine_delete(spec, name, namespace, **_kwargs):
-    """Handle SSHMachine deletion -- cleanup via SSH (kubeadm reset)."""
+    """Handle SSHMachine deletion -- cleanup via SSH (kubeadm reset) and release host."""
     logger.info("SSHMachine %s/%s deleting", namespace, name)
+
+    # Release the claimed SSHHost back to the pool
+    await _release_host(spec, name, namespace)
 
     address = spec.get("address")
     port = spec.get("port", 22)

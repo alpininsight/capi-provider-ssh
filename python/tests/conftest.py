@@ -50,6 +50,19 @@ def sshmachine_spec():
 
 
 @pytest.fixture
+def sshmachine_spec_with_hostselector():
+    """SSHMachine spec using hostSelector (pool-based selection)."""
+    return {
+        "hostSelector": {
+            "matchLabels": {
+                "role": "control-plane",
+                "cluster": "hetzner-staging",
+            },
+        },
+    }
+
+
+@pytest.fixture
 def sshmachine_meta_with_owner():
     """SSHMachine metadata with CAPI Machine ownerReference."""
     return {
@@ -61,4 +74,61 @@ def sshmachine_meta_with_owner():
                 "uid": "def-456",
             }
         ]
+    }
+
+
+@pytest.fixture
+def sshhost_items():
+    """List of SSHHost items for pool-based selection tests."""
+    return {
+        "items": [
+            {
+                "metadata": {
+                    "name": "host-1",
+                    "labels": {
+                        "role": "control-plane",
+                        "cluster": "hetzner-staging",
+                    },
+                },
+                "spec": {
+                    "address": "65.21.157.94",
+                    "port": 22,
+                    "user": "root",
+                    "sshKeyRef": {"name": "hetzner-ssh-key", "key": "value"},
+                    "consumerRef": {"kind": "SSHMachine", "name": "existing", "namespace": "default"},
+                },
+            },
+            {
+                "metadata": {
+                    "name": "host-2",
+                    "labels": {
+                        "role": "control-plane",
+                        "cluster": "hetzner-staging",
+                    },
+                },
+                "spec": {
+                    "address": "65.21.157.69",
+                    "port": 22,
+                    "user": "root",
+                    "sshKeyRef": {"name": "hetzner-ssh-key", "key": "value"},
+                    "consumerRef": {},
+                },
+            },
+            {
+                "metadata": {
+                    "name": "host-3",
+                    "labels": {
+                        "role": "worker",
+                        "cluster": "hetzner-staging",
+                    },
+                },
+                "spec": {
+                    "address": "65.109.84.186",
+                    "port": 22,
+                    "user": "root",
+                    "sshKeyRef": {"name": "hetzner-ssh-key", "key": "value"},
+                    "consumerRef": {},
+                },
+            },
+        ],
     }
