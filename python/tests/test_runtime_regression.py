@@ -16,6 +16,10 @@ def test_docker_entrypoint_uses_kopf_directly() -> None:
         "`~/.cache/uv` and can fail in hardened pods (`readOnlyRootFilesystem: true`, non-root)."
     )
     assert '"kopf", "run"' in entrypoint, "ENTRYPOINT must execute kopf directly from the venv."
+    assert '--liveness=http://0.0.0.0:8080/healthz' in entrypoint, (
+        "Regression guard: probes target /healthz on 8080, but this broke before when Kopf liveness "
+        "endpoint was not enabled in ENTRYPOINT."
+    )
 
 
 def test_dockerfile_exports_venv_bin_on_path() -> None:
