@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **test:** Resolve ruff lint and format issues in integration tests
 - **crds:** Use additionalPrinterColumns instead of printcolumns
 - **deploy:** Harden deployment for Gatekeeper compliance and kind e2e
+- **docker:** Copy source before uv sync so package is installed 
 
 ### Features
 
