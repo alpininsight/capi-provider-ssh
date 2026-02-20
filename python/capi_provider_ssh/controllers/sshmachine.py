@@ -866,13 +866,13 @@ async def sshmachine_reboot(old, new, spec, name, namespace, patch, **_kwargs):
             False,
             "Missing spec.address or spec.sshKeyRef.name; cannot perform reboot remediation",
         )
-        return
+        raise kopf.TemporaryError("reboot remediation waiting for address/sshKeyRef", delay=15)
 
     try:
         ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
     except Exception as e:
         _set_reboot_status(patch, str(new), False, f"Failed to read SSH key: {e}")
-        return
+        raise kopf.TemporaryError(f"failed to read SSH key for reboot remediation: {e}", delay=30) from e
 
     try:
         async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:

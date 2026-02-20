@@ -628,19 +628,48 @@ class TestSSHMachineReboot:
         assert status["success"] is True
 
     @pytest.mark.asyncio
-    async def test_reboot_missing_address_does_not_raise(self):
+    async def test_reboot_missing_address_requeues(self):
         spec = {
             "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
         }
         patch_obj = kopf.Patch({})
-        await sshmachine_reboot(
-            old=None,
-            new="2026-02-20T16:10:00Z",
-            spec=spec,
-            name="m1",
-            namespace="default",
-            patch=patch_obj,
-        )
+        with pytest.raises(kopf.TemporaryError, match="waiting for address/sshKeyRef"):
+            await sshmachine_reboot(
+                old=None,
+                new="2026-02-20T16:10:00Z",
+                spec=spec,
+                name="m1",
+                namespace="default",
+                patch=patch_obj,
+            )
+        status = patch_obj["status"]["remediation"]["reboot"]
+        assert status["success"] is False
+
+    @pytest.mark.asyncio
+    async def test_reboot_key_read_failure_requeues(self):
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+        }
+        patch_obj = kopf.Patch({})
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                side_effect=ConnectionError("apiserver unavailable"),
+            ),
+            pytest.raises(kopf.TemporaryError, match="failed to read SSH key for reboot remediation"),
+        ):
+            await sshmachine_reboot(
+                old=None,
+                new="2026-02-20T16:15:00Z",
+                spec=spec,
+                name="m1",
+                namespace="default",
+                patch=patch_obj,
+            )
         status = patch_obj["status"]["remediation"]["reboot"]
         assert status["success"] is False
 
