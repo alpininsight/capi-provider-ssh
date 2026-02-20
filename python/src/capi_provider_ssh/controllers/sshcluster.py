@@ -26,8 +26,7 @@ def _has_capi_cluster_owner(owner_references: list[dict] | None) -> bool:
     if not owner_references:
         return False
     return any(
-        ref.get("apiVersion", "").startswith("cluster.x-k8s.io/")
-        and ref.get("kind") == "Cluster"
+        ref.get("apiVersion", "").startswith("cluster.x-k8s.io/") and ref.get("kind") == "Cluster"
         for ref in owner_references
     )
 

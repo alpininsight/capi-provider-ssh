@@ -51,8 +51,12 @@ class TestSSHMachineReconcile:
         spec = {**{"address": "10.0.0.1"}, "paused": True}
         patch_obj = kopf.Patch({})
         await sshmachine_reconcile(
-            spec=spec, status={}, name="m1", namespace="default",
-            meta=sshmachine_meta_with_owner, patch=patch_obj,
+            spec=spec,
+            status={},
+            name="m1",
+            namespace="default",
+            meta=sshmachine_meta_with_owner,
+            patch=patch_obj,
         )
         assert "initialization" not in patch_obj.get("status", {})
 
@@ -60,8 +64,12 @@ class TestSSHMachineReconcile:
     async def test_no_owner_not_ready(self, sshmachine_spec):
         patch_obj = kopf.Patch({})
         await sshmachine_reconcile(
-            spec=sshmachine_spec, status={}, name="m1", namespace="default",
-            meta={}, patch=patch_obj,
+            spec=sshmachine_spec,
+            status={},
+            name="m1",
+            namespace="default",
+            meta={},
+            patch=patch_obj,
         )
         assert patch_obj["status"]["initialization"]["provisioned"] is False
         assert patch_obj["status"]["conditions"][0]["reason"] == "WaitingForMachineOwner"
@@ -74,8 +82,12 @@ class TestSSHMachineReconcile:
         }
         patch_obj = kopf.Patch({})
         await sshmachine_reconcile(
-            spec=sshmachine_spec, status=status, name="m1", namespace="default",
-            meta=sshmachine_meta_with_owner, patch=patch_obj,
+            spec=sshmachine_spec,
+            status=status,
+            name="m1",
+            namespace="default",
+            meta=sshmachine_meta_with_owner,
+            patch=patch_obj,
         )
         # Should not modify status (idempotent)
         assert "initialization" not in patch_obj.get("status", {})
@@ -90,8 +102,12 @@ class TestSSHMachineReconcile:
             patch_obj = kopf.Patch({})
             with pytest.raises(kopf.TemporaryError, match="Bootstrap data not ready"):
                 await sshmachine_reconcile(
-                    spec=sshmachine_spec, status={}, name="m1", namespace="default",
-                    meta=sshmachine_meta_with_owner, patch=patch_obj,
+                    spec=sshmachine_spec,
+                    status={},
+                    name="m1",
+                    namespace="default",
+                    meta=sshmachine_meta_with_owner,
+                    patch=patch_obj,
                 )
 
     @pytest.mark.asyncio
@@ -105,8 +121,12 @@ class TestSSHMachineReconcile:
             patch_obj = kopf.Patch({})
             with pytest.raises(kopf.PermanentError, match="sshKeyRef.name"):
                 await sshmachine_reconcile(
-                    spec=spec, status={}, name="m1", namespace="default",
-                    meta=sshmachine_meta_with_owner, patch=patch_obj,
+                    spec=spec,
+                    status={},
+                    name="m1",
+                    namespace="default",
+                    meta=sshmachine_meta_with_owner,
+                    patch=patch_obj,
                 )
 
     @pytest.mark.asyncio
@@ -141,8 +161,12 @@ class TestSSHMachineReconcile:
         ):
             patch_obj = kopf.Patch({})
             await sshmachine_reconcile(
-                spec=sshmachine_spec, status={}, name="m1", namespace="default",
-                meta=sshmachine_meta_with_owner, patch=patch_obj,
+                spec=sshmachine_spec,
+                status={},
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
             )
             assert patch_obj["status"]["initialization"]["provisioned"] is True
             assert patch_obj["spec"]["providerID"] == "ssh://100.64.0.10"
@@ -177,8 +201,12 @@ class TestSSHMachineReconcile:
             patch_obj = kopf.Patch({})
             with pytest.raises(kopf.TemporaryError, match="Bootstrap failed"):
                 await sshmachine_reconcile(
-                    spec=sshmachine_spec, status={}, name="m1", namespace="default",
-                    meta=sshmachine_meta_with_owner, patch=patch_obj,
+                    spec=sshmachine_spec,
+                    status={},
+                    name="m1",
+                    namespace="default",
+                    meta=sshmachine_meta_with_owner,
+                    patch=patch_obj,
                 )
             assert patch_obj["status"]["failureReason"] == "BootstrapFailed"
 

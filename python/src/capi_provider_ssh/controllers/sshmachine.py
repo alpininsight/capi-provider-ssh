@@ -47,8 +47,7 @@ def _has_machine_owner(owner_references: list[dict] | None) -> bool:
     if not owner_references:
         return False
     return any(
-        ref.get("apiVersion", "").startswith("cluster.x-k8s.io/")
-        and ref.get("kind") == "Machine"
+        ref.get("apiVersion", "").startswith("cluster.x-k8s.io/") and ref.get("kind") == "Machine"
         for ref in owner_references
     )
 
