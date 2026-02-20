@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Switch to flat layout for Python 3.14 compatibility
 - **docker:** Copy source before uv sync so package is installed 
 - **ci:** Update CI paths for flat layout and resolve merge conflict
+- **python:** Allow controller CRD discovery in RBAC
+- **python:** Harden SSHHost claim and release semantics
+- **python:** Requeue reboot remediation until machine is ready
 
 ### Features
 
@@ -33,15 +36,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Implement SSHMachine controller
 - **ci:** Split #12 into CI and container workflows
 - **crds:** Add SSHHost CRD for Metal3-style host inventory
+- **python:** Add external etcd wiring and reboot remediation
 
 ### Miscellaneous
 
 - Add DCO and update README with contributing guidelines
 - Remove AI references and update .gitignore
+- **repo:** Add pre-commit config and conventional commit hook
 
 ### Styling
 
 - Format sshmachine.py for ruff compliance
+- **python:** Format sshmachine controller with ruff
 
 ### Testing
 
