@@ -13,7 +13,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import kopf
-import kubernetes
 import pytest
 
 from capi_provider_ssh.controllers.sshmachine import (

@@ -19,9 +19,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.timeout(60)]
 class TestSSHClusterWithOwner:
     """SSHCluster with a CAPI Cluster ownerReference should become provisioned."""
 
-    def test_create_with_owner_becomes_provisioned(
-        self, custom_api, test_namespace, cluster_owner_ref
-    ):
+    def test_create_with_owner_becomes_provisioned(self, custom_api, test_namespace, cluster_owner_ref):
         """Create SSHCluster with owner → reconcile → verify provisioned status."""
         spec = {"controlPlaneEndpoint": {"host": "10.0.0.1", "port": 6443}}
         name = "test-cluster-owned"
@@ -61,9 +59,7 @@ class TestSSHClusterWithOwner:
         updated = get_sshcluster(custom_api, name, test_namespace)
         assert updated["status"]["initialization"]["provisioned"] is True
 
-    def test_idempotent_reconciliation(
-        self, custom_api, test_namespace, cluster_owner_ref
-    ):
+    def test_idempotent_reconciliation(self, custom_api, test_namespace, cluster_owner_ref):
         """Running reconcile twice on the same resource produces consistent status."""
         spec = {"controlPlaneEndpoint": {"host": "10.0.0.2", "port": 6443}}
         name = "test-cluster-idempotent"
@@ -101,9 +97,7 @@ class TestSSHClusterWithoutOwner:
 class TestSSHClusterPaused:
     """Paused SSHCluster should skip reconciliation entirely."""
 
-    def test_paused_skips_reconciliation(
-        self, custom_api, test_namespace, cluster_owner_ref
-    ):
+    def test_paused_skips_reconciliation(self, custom_api, test_namespace, cluster_owner_ref):
         """Create paused SSHCluster → reconcile → verify no status changes."""
         spec = {
             "controlPlaneEndpoint": {"host": "10.0.0.4", "port": 6443},
@@ -124,9 +118,7 @@ class TestSSHClusterPaused:
 class TestSSHClusterInvalidEndpoint:
     """SSHCluster with invalid endpoint should be marked not-ready."""
 
-    def test_empty_endpoint_not_ready(
-        self, custom_api, test_namespace, cluster_owner_ref
-    ):
+    def test_empty_endpoint_not_ready(self, custom_api, test_namespace, cluster_owner_ref):
         """Create SSHCluster with empty host → reconcile → verify InvalidEndpoint."""
         # CRD schema requires host, so we test with an empty string via direct reconcile
         spec = {"controlPlaneEndpoint": {"host": "", "port": 0}}
@@ -142,9 +134,7 @@ class TestSSHClusterInvalidEndpoint:
 class TestSSHClusterDelete:
     """SSHCluster deletion should succeed (no-op cleanup)."""
 
-    def test_delete_removes_resource(
-        self, custom_api, test_namespace, cluster_owner_ref
-    ):
+    def test_delete_removes_resource(self, custom_api, test_namespace, cluster_owner_ref):
         """Create then delete SSHCluster → verify it's gone."""
         spec = {"controlPlaneEndpoint": {"host": "10.0.0.5", "port": 6443}}
         name = "test-cluster-delete"
