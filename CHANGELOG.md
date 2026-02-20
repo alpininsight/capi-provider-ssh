@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Make package README available in docker build context
 - **ci:** Unblock Docker build and publish on internal PRs
 - **test:** Assert SSHCluster deletion succeeds after retry loop
+- **test:** Resolve ruff lint and format issues in integration tests
 
 ### Features
 
