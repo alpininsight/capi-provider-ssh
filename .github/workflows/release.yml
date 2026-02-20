@@ -1,0 +1,102 @@
+---
+# =============================================================================
+# Release Workflow - Auto-versioning with GitVersion
+# Triggers on push to main branch, creates releases automatically
+# =============================================================================
+#
+# How it works:
+#   1. Merge PR to main
+#   2. GitVersion calculates semantic version from commit history
+#   3. If version tag doesn't exist, creates GitHub Release automatically
+#
+# Version bumping (via commit messages):
+#   - feat: → minor version bump (0.1.0 → 0.2.0)
+#   - fix:  → patch version bump (0.1.0 → 0.1.1)
+#   - BREAKING CHANGE: → major version bump (0.1.0 → 1.0.0)
+#
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up GitVersion
+        uses: gittools/actions/gitversion/setup@v3.1.2
+        with:
+          versionSpec: '5.x'
+          preferLatestVersion: true
+
+      - name: Calculate version
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v3.1.2
+        with:
+          useConfigFile: true
+          configFilePath: GitVersion.yml
+          overrideConfig: |
+            update-build-number=false
+
+      - name: Display and validate version info
+        id: version
+        run: |
+          VERSION="${{ steps.gitversion.outputs.MajorMinorPatch }}"
+          echo "MajorMinorPatch: $VERSION"
+          echo "SemVer: ${{ steps.gitversion.outputs.SemVer }}"
+          echo "FullSemVer: ${{ steps.gitversion.outputs.FullSemVer }}"
+
+          # Validate version format (X.Y.Z)
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version format: '$VERSION'. Expected X.Y.Z"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "${GITHUB_OUTPUT}"
+
+      - name: Check if tag exists
+        id: tagcheck
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+            echo "Tag ${TAG} already exists, skipping release"
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+            echo "Tag ${TAG} does not exist, will create release"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.tagcheck.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+      - name: Summary
+        if: steps.tagcheck.outputs.exists != 'true'
+        run: |
+          echo "### Release v${{ steps.version.outputs.version }} created" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: v${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version is available via GitHub Releases and git tags" >> "$GITHUB_STEP_SUMMARY"

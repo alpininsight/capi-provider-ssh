@@ -1,0 +1,66 @@
+# GitVersion 5.x Configuration
+# See: https://gitversion.net/docs/reference/configuration
+mode: ContinuousDelivery
+tag-prefix: '[vV]?'
+next-version: 0.1.0
+assembly-versioning-scheme: MajorMinorPatch
+commit-message-incrementing: Enabled
+major-version-bump-message: '(\+semver:\s?(breaking|major))|^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\(.+\))?!:|BREAKING CHANGE:'
+minor-version-bump-message: '(\+semver:\s?(feature|minor))|^feat(\(.+\))?:'
+patch-version-bump-message: '(\+semver:\s?(fix|patch))|^(fix|perf)(\(.+\))?:'
+no-bump-message: '(\+semver:\s?(skip|none))|^(chore|docs|style|test|ci|build|revert)(\(.+\))?:'
+branches:
+  main:
+    regex: ^main$
+    mode: ContinuousDelivery
+    tag: ''
+    increment: Patch
+    prevent-increment-of-merged-branch-version: true
+    track-merge-target: false
+    is-release-branch: true
+    is-mainline: true
+  develop:
+    regex: ^develop$
+    mode: ContinuousDelivery
+    tag: alpha
+    increment: Minor
+    prevent-increment-of-merged-branch-version: false
+    track-merge-target: true
+    is-release-branch: false
+    is-mainline: false
+  feature:
+    regex: ^(feature|feat)[/-]
+    mode: ContinuousDelivery
+    tag: alpha.{BranchName}
+    increment: Inherit
+    source-branches: ['develop', 'main']
+  hotfix:
+    regex: ^hotfix[/-]
+    mode: ContinuousDelivery
+    tag: beta
+    increment: Patch
+    source-branches: ['main']
+  release:
+    regex: ^release[/-]
+    mode: ContinuousDelivery
+    tag: rc
+    increment: None
+    source-branches: ['develop']
+  ci:
+    regex: ^ci[/-]
+    mode: ContinuousDelivery
+    tag: ci.{BranchName}
+    increment: Inherit
+    source-branches: ['develop']
+  docs:
+    regex: ^docs[/-]
+    mode: ContinuousDelivery
+    tag: docs.{BranchName}
+    increment: Inherit
+    source-branches: ['develop']
+  fix:
+    regex: ^fix[/-]
+    mode: ContinuousDelivery
+    tag: fix.{BranchName}
+    increment: Inherit
+    source-branches: ['develop']
