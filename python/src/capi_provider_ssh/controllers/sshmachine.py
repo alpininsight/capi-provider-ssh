@@ -196,7 +196,7 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
 
     # SSH bootstrap
     try:
-        async with SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
+        async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
             # Upload bootstrap script
             await conn.upload(bootstrap_data, "/tmp/bootstrap.sh")  # noqa: S108
 
@@ -270,7 +270,7 @@ async def sshmachine_delete(spec, name, namespace, **_kwargs):
         return
 
     try:
-        async with SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
+        async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
             cleanup_cmd = "kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet"
             result = await conn.execute(cleanup_cmd)
             if result.success:
