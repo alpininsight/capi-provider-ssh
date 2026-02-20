@@ -1,0 +1,112 @@
+name: E2E Python Real SSH
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 2 * * *"
+
+concurrency:
+  group: e2e-python-real-ssh-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-real-ssh:
+    name: E2E real SSH (kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      KIND_CLUSTER_NAME: capi-ssh-e2e
+      PROVIDER_IMAGE: capi-provider-ssh-e2e:${{ github.sha }}
+      SSH_TARGET_IMAGE: capi-provider-ssh-ssh-target:e2e
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
+        with:
+          enable-cache: true
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install kind
+        run: |
+          set -euo pipefail
+          KIND_VERSION="v0.24.0"
+          curl -fsSL "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64" -o kind
+          chmod +x kind
+          sudo install -m 0755 kind /usr/local/bin/kind
+          rm kind
+
+      - name: Create kind cluster
+        run: kind create cluster --name "${KIND_CLUSTER_NAME}" --wait 120s
+
+      - name: Build provider image
+        run: docker build -t "${PROVIDER_IMAGE}" ./python
+
+      - name: Build SSH target image
+        run: docker build -t "${SSH_TARGET_IMAGE}" ./python/tests/e2e/ssh-target
+
+      - name: Load images into kind
+        run: |
+          kind load docker-image --name "${KIND_CLUSTER_NAME}" "${PROVIDER_IMAGE}"
+          kind load docker-image --name "${KIND_CLUSTER_NAME}" "${SSH_TARGET_IMAGE}"
+
+      - name: Apply CRDs and deploy controller
+        run: |
+          set -euo pipefail
+          kubectl apply -f python/tests/e2e/manifests/capi-core-crds.yaml
+          kubectl apply -k shared/crds
+          kubectl apply -k python/deploy
+          kubectl -n capi-provider-ssh-system set image deployment/capi-provider-ssh-controller \
+            controller="${PROVIDER_IMAGE}"
+
+      - name: Wait for provider deployment
+        run: kubectl -n capi-provider-ssh-system rollout status deployment/capi-provider-ssh-controller --timeout=180s
+
+      - name: Run e2e tests
+        working-directory: python
+        env:
+          E2E_TESTS: "1"
+          E2E_SSH_TARGET_IMAGE: ${{ env.SSH_TARGET_IMAGE }}
+        run: |
+          uv sync --dev
+          uv run pytest -m e2e -vv --maxfail=1
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/e2e-diagnostics
+          kubectl get ns -o wide > /tmp/e2e-diagnostics/namespaces.txt
+          kubectl get pods -A -o wide > /tmp/e2e-diagnostics/pods-all.txt
+          kubectl -n capi-provider-ssh-system describe deployment capi-provider-ssh-controller \
+            > /tmp/e2e-diagnostics/provider-deployment.txt
+          kubectl -n capi-provider-ssh-system logs deployment/capi-provider-ssh-controller --all-containers=true \
+            > /tmp/e2e-diagnostics/provider-logs.txt || true
+          for ns in $(kubectl get ns -l capi-provider-ssh-suite=real-ssh -o jsonpath='{.items[*].metadata.name}'); do
+            kubectl get all -n "$ns" -o wide > "/tmp/e2e-diagnostics/${ns}-all.txt" || true
+            kubectl get sshclusters.infrastructure.alpininsight.ai -n "$ns" -o yaml \
+              > "/tmp/e2e-diagnostics/${ns}-sshclusters.yaml" || true
+            kubectl get sshmachines.infrastructure.alpininsight.ai -n "$ns" -o yaml \
+              > "/tmp/e2e-diagnostics/${ns}-sshmachines.yaml" || true
+            kubectl get machines.cluster.x-k8s.io -n "$ns" -o yaml \
+              > "/tmp/e2e-diagnostics/${ns}-machines.yaml" || true
+          done
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-python-real-ssh-diagnostics
+          path: /tmp/e2e-diagnostics
+          if-no-files-found: ignore
