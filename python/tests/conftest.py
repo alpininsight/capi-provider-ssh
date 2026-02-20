@@ -85,6 +85,7 @@ def sshhost_items():
             {
                 "metadata": {
                     "name": "host-1",
+                    "resourceVersion": "11",
                     "labels": {
                         "role": "control-plane",
                         "cluster": "hetzner-staging",
@@ -101,6 +102,7 @@ def sshhost_items():
             {
                 "metadata": {
                     "name": "host-2",
+                    "resourceVersion": "12",
                     "labels": {
                         "role": "control-plane",
                         "cluster": "hetzner-staging",
@@ -117,6 +119,7 @@ def sshhost_items():
             {
                 "metadata": {
                     "name": "host-3",
+                    "resourceVersion": "13",
                     "labels": {
                         "role": "worker",
                         "cluster": "hetzner-staging",

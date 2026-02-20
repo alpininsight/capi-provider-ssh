@@ -8,9 +8,12 @@ import pytest
 from capi_provider_ssh.controllers.sshmachine import (
     _choose_host,
     _has_machine_owner,
+    _inject_external_etcd_into_bootstrap_data,
     _is_already_provisioned,
+    _normalize_external_etcd,
     _release_host,
     sshmachine_delete,
+    sshmachine_reboot,
     sshmachine_reconcile,
 )
 from capi_provider_ssh.ssh import SSHResult
@@ -266,6 +269,10 @@ class TestSSHMachineDelete:
         """Delete must release claimed SSHHost back to pool."""
         spec_with_host = {**sshmachine_spec, "hostRef": "default/host-2"}
         mock_api = MagicMock()
+        mock_api.get_namespaced_custom_object.return_value = {
+            "metadata": {"name": "host-2", "resourceVersion": "12"},
+            "spec": {"consumerRef": {"kind": "SSHMachine", "name": "m1", "namespace": "default"}},
+        }
 
         with (
             patch(
@@ -313,6 +320,7 @@ class TestChooseHost:
         """Should claim host-2 (first unclaimed CP host)."""
         mock_api = MagicMock()
         mock_api.list_namespaced_custom_object.return_value = sshhost_items
+        mock_api.get_namespaced_custom_object.return_value = {"metadata": {"name": "existing"}}
         mock_api.patch_namespaced_custom_object.return_value = None
 
         with patch(
@@ -328,6 +336,92 @@ class TestChooseHost:
             assert patch_obj["spec"]["sshKeyRef"]["name"] == "hetzner-ssh-key"
             # SSHHost should have been patched with consumerRef
             mock_api.patch_namespaced_custom_object.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_hostselector_takes_precedence_over_address(self, sshhost_items):
+        """hostSelector mode must win even if address is pre-set in spec."""
+        spec = {
+            "address": "10.0.0.10",
+            "hostSelector": {
+                "matchLabels": {
+                    "role": "control-plane",
+                    "cluster": "hetzner-staging",
+                },
+            },
+        }
+        mock_api = MagicMock()
+        mock_api.list_namespaced_custom_object.return_value = sshhost_items
+        mock_api.get_namespaced_custom_object.return_value = {"metadata": {"name": "existing"}}
+        mock_api.patch_namespaced_custom_object.return_value = None
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            patch_obj = kopf.Patch({})
+            result = await _choose_host(spec, "m1", "default", patch_obj)
+            assert result is True
+            assert patch_obj["spec"]["address"] == "65.21.157.69"
+            assert patch_obj["spec"]["hostRef"] == "default/host-2"
+
+    @pytest.mark.asyncio
+    async def test_reclaims_orphaned_host(self, sshmachine_spec_with_hostselector):
+        """Orphaned SSHHost claims should be cleared and then reused."""
+        host = {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "host-9",
+                        "resourceVersion": "20",
+                        "labels": {"role": "control-plane", "cluster": "hetzner-staging"},
+                    },
+                    "spec": {
+                        "address": "65.21.157.200",
+                        "user": "root",
+                        "sshKeyRef": {"name": "hetzner-ssh-key", "key": "value"},
+                        "consumerRef": {"kind": "SSHMachine", "name": "gone", "namespace": "default"},
+                    },
+                },
+            ],
+        }
+        refreshed_host = {
+            "metadata": {
+                "name": "host-9",
+                "resourceVersion": "21",
+                "labels": {"role": "control-plane", "cluster": "hetzner-staging"},
+            },
+            "spec": {
+                "address": "65.21.157.200",
+                "user": "root",
+                "sshKeyRef": {"name": "hetzner-ssh-key", "key": "value"},
+                "consumerRef": {},
+            },
+        }
+
+        mock_api = MagicMock()
+        mock_api.list_namespaced_custom_object.return_value = host
+        import kubernetes as k8s
+
+        mock_api.get_namespaced_custom_object.side_effect = [
+            k8s.client.ApiException(status=404),  # orphan check for gone machine
+            refreshed_host,  # refresh host after clearing stale claim
+        ]
+        mock_api.patch_namespaced_custom_object.return_value = None
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            patch_obj = kopf.Patch({})
+            result = await _choose_host(sshmachine_spec_with_hostselector, "m1", "default", patch_obj)
+            assert result is True
+            assert patch_obj["spec"]["hostRef"] == "default/host-9"
+            assert patch_obj["spec"]["address"] == "65.21.157.200"
+            assert mock_api.patch_namespaced_custom_object.call_count == 2
+            first_call = mock_api.patch_namespaced_custom_object.call_args_list[0][1]["body"]
+            second_call = mock_api.patch_namespaced_custom_object.call_args_list[1][1]["body"]
+            assert first_call["spec"]["consumerRef"] == {}
+            assert second_call["spec"]["consumerRef"]["name"] == "m1"
 
     @pytest.mark.asyncio
     async def test_no_available_host_requeues(self, sshmachine_spec_with_hostselector):
@@ -346,6 +440,7 @@ class TestChooseHost:
         }
         mock_api = MagicMock()
         mock_api.list_namespaced_custom_object.return_value = all_claimed
+        mock_api.get_namespaced_custom_object.return_value = {"metadata": {"name": "other"}}
 
         with patch(
             "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
@@ -362,6 +457,10 @@ class TestReleaseHost:
         """Release should clear consumerRef on the SSHHost."""
         spec = {"hostRef": "default/host-2"}
         mock_api = MagicMock()
+        mock_api.get_namespaced_custom_object.return_value = {
+            "metadata": {"name": "host-2", "resourceVersion": "12"},
+            "spec": {"consumerRef": {"kind": "SSHMachine", "name": "m1", "namespace": "default"}},
+        }
 
         with patch(
             "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
@@ -372,6 +471,23 @@ class TestReleaseHost:
             body = mock_api.patch_namespaced_custom_object.call_args[1]["body"]
             assert body["spec"]["consumerRef"] == {}
             assert body["status"]["inUse"] is False
+
+    @pytest.mark.asyncio
+    async def test_release_skips_foreign_claim(self):
+        """Release must not clear a host that is claimed by another machine."""
+        spec = {"hostRef": "default/host-2"}
+        mock_api = MagicMock()
+        mock_api.get_namespaced_custom_object.return_value = {
+            "metadata": {"name": "host-2", "resourceVersion": "12"},
+            "spec": {"consumerRef": {"kind": "SSHMachine", "name": "other", "namespace": "default"}},
+        }
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            await _release_host(spec, "m1", "default")
+            mock_api.patch_namespaced_custom_object.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_release_no_hostref_is_noop(self):
@@ -391,7 +507,7 @@ class TestReleaseHost:
 
         spec = {"hostRef": "default/host-gone"}
         mock_api = MagicMock()
-        mock_api.patch_namespaced_custom_object.side_effect = k8s.client.ApiException(status=404)
+        mock_api.get_namespaced_custom_object.side_effect = k8s.client.ApiException(status=404)
 
         with patch(
             "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
@@ -399,3 +515,272 @@ class TestReleaseHost:
         ):
             # Should not raise
             await _release_host(spec, "m1", "default")
+            mock_api.patch_namespaced_custom_object.assert_not_called()
+
+
+class TestExternalEtcdConfig:
+    def test_normalize_external_etcd_valid(self):
+        spec = {
+            "externalEtcd": {
+                "endpoints": ["https://10.0.0.10:2379", "https://10.0.0.11:2379"],
+                "caCertRef": {"name": "etcd-ca"},
+                "clientCertRef": {"name": "etcd-client-cert"},
+                "clientKeyRef": {"name": "etcd-client-key"},
+            },
+        }
+        cfg = _normalize_external_etcd(spec)
+        assert cfg is not None
+        assert cfg["servers"] == "https://10.0.0.10:2379,https://10.0.0.11:2379"
+        assert cfg["ca_file"] == "/etc/kubernetes/pki/etcd-external/ca.crt"
+
+    def test_normalize_external_etcd_invalid_endpoints(self):
+        spec = {
+            "externalEtcd": {
+                "endpoints": [],
+                "caCertRef": {"name": "etcd-ca"},
+                "clientCertRef": {"name": "etcd-client-cert"},
+                "clientKeyRef": {"name": "etcd-client-key"},
+            },
+        }
+        with pytest.raises(kopf.PermanentError, match="externalEtcd.endpoints"):
+            _normalize_external_etcd(spec)
+
+    def test_inject_external_etcd_into_bootstrap_data(self):
+        bootstrap = """#!/bin/bash
+cat > /run/kubeadm/kubeadm.yaml <<'EOF'
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+apiServer:
+  extraArgs: {}
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+nodeRegistration:
+  name: cp-0
+EOF
+kubeadm init --config /run/kubeadm/kubeadm.yaml
+"""
+        external = {
+            "servers": "https://10.0.0.10:2379,https://10.0.0.11:2379",
+            "ca_file": "/etc/kubernetes/pki/etcd-external/ca.crt",
+            "cert_file": "/etc/kubernetes/pki/etcd-external/client.crt",
+            "key_file": "/etc/kubernetes/pki/etcd-external/client.key",
+        }
+        patched, changed = _inject_external_etcd_into_bootstrap_data(bootstrap, external)
+        assert changed is True
+        assert "etcd-servers: https://10.0.0.10:2379,https://10.0.0.11:2379" in patched
+        assert "etcd-cafile: /etc/kubernetes/pki/etcd-external/ca.crt" in patched
+        assert "etcd-certfile: /etc/kubernetes/pki/etcd-external/client.crt" in patched
+        assert "etcd-keyfile: /etc/kubernetes/pki/etcd-external/client.key" in patched
+
+    def test_inject_external_etcd_requires_cluster_configuration(self):
+        bootstrap = """#!/bin/bash
+echo "no kubeadm yaml here"
+"""
+        external = {
+            "servers": "https://10.0.0.10:2379",
+            "ca_file": "/etc/kubernetes/pki/etcd-external/ca.crt",
+            "cert_file": "/etc/kubernetes/pki/etcd-external/client.crt",
+            "key_file": "/etc/kubernetes/pki/etcd-external/client.key",
+        }
+        with pytest.raises(kopf.PermanentError, match="no kubeadm ClusterConfiguration"):
+            _inject_external_etcd_into_bootstrap_data(bootstrap, external)
+
+
+class TestSSHMachineReboot:
+    @pytest.mark.asyncio
+    async def test_reboot_success_sets_status(self):
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+        }
+        patch_obj = kopf.Patch({})
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=0, stdout="ok", stderr="")
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            await sshmachine_reboot(
+                old=None,
+                new="2026-02-20T16:00:00Z",
+                spec=spec,
+                name="m1",
+                namespace="default",
+                patch=patch_obj,
+            )
+
+        status = patch_obj["status"]["remediation"]["reboot"]
+        assert status["lastRequestedAt"] == "2026-02-20T16:00:00Z"
+        assert status["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_reboot_missing_address_requeues(self):
+        spec = {
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+        }
+        patch_obj = kopf.Patch({})
+        with pytest.raises(kopf.TemporaryError, match="waiting for address/sshKeyRef"):
+            await sshmachine_reboot(
+                old=None,
+                new="2026-02-20T16:10:00Z",
+                spec=spec,
+                name="m1",
+                namespace="default",
+                patch=patch_obj,
+            )
+        status = patch_obj["status"]["remediation"]["reboot"]
+        assert status["success"] is False
+
+    @pytest.mark.asyncio
+    async def test_reboot_key_read_failure_requeues(self):
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+        }
+        patch_obj = kopf.Patch({})
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                side_effect=ConnectionError("apiserver unavailable"),
+            ),
+            pytest.raises(kopf.TemporaryError, match="failed to read SSH key for reboot remediation"),
+        ):
+            await sshmachine_reboot(
+                old=None,
+                new="2026-02-20T16:15:00Z",
+                spec=spec,
+                name="m1",
+                namespace="default",
+                patch=patch_obj,
+            )
+        status = patch_obj["status"]["remediation"]["reboot"]
+        assert status["success"] is False
+
+
+class TestSSHMachineExternalEtcdReconcile:
+    @pytest.mark.asyncio
+    async def test_external_etcd_bootstrap_injection_and_cert_upload(self, sshmachine_meta_with_owner):
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+            "externalEtcd": {
+                "endpoints": ["https://10.0.0.10:2379", "https://10.0.0.11:2379"],
+                "caCertRef": {"name": "etcd-ca"},
+                "clientCertRef": {"name": "etcd-client-cert"},
+                "clientKeyRef": {"name": "etcd-client-key"},
+            },
+        }
+        bootstrap = """#!/bin/bash
+cat > /run/kubeadm/kubeadm.yaml <<'EOF'
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+apiServer:
+  extraArgs: {}
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+nodeRegistration:
+  name: cp-0
+EOF
+kubeadm init --config /run/kubeadm/kubeadm.yaml
+"""
+
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=0, stdout="ok", stderr="")
+        mock_conn.upload = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value=bootstrap,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._upload_external_etcd_certs",
+                new_callable=AsyncMock,
+                return_value=None,
+            ) as mock_upload_certs,
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=spec,
+                status={},
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+
+        mock_upload_certs.assert_called_once()
+        uploaded_script = mock_conn.upload.call_args[0][0]
+        assert "etcd-servers: https://10.0.0.10:2379,https://10.0.0.11:2379" in uploaded_script
+
+    @pytest.mark.asyncio
+    async def test_reboot_command_failure_requeues(self):
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+        }
+        patch_obj = kopf.Patch({})
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=1, stdout="", stderr="reboot failed")
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+            pytest.raises(kopf.TemporaryError, match="reboot remediation command failed"),
+        ):
+            await sshmachine_reboot(
+                old=None,
+                new="2026-02-20T16:20:00Z",
+                spec=spec,
+                name="m1",
+                namespace="default",
+                patch=patch_obj,
+            )
+
+        status = patch_obj["status"]["remediation"]["reboot"]
+        assert status["success"] is False

@@ -1,0 +1,26 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.2
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: conventional-commit-msg
+        name: conventional-commit-msg
+        entry: >
+          bash -c
+          'grep -Eq "^(feat|fix|chore|docs|style|refactor|perf|test|ci|build|revert)(\\([a-z0-9._-]+\\))?(!)?: .+"
+          "$1"'
+        language: system
+        stages: [commit-msg]
