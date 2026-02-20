@@ -50,13 +50,44 @@ Both implementations fulfill the same [CAPI provider contract](https://cluster-a
 
 ## Development
 
+See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup instructions.
+
 ```bash
 # Python
 cd python && uv sync && uv run pytest
 
 # Rust
 cd rust && cargo test
+
+# Apply CRDs
+kubectl apply -k shared/crds/
 ```
+
+## Contributing
+
+We welcome contributions! By contributing to this project, you agree to the [Developer Certificate of Origin (DCO)](DCO).
+
+All commits must be signed off to certify that you wrote or have the right to submit the code:
+
+```bash
+git commit -s -m "feat: add my contribution"
+```
+
+This adds a `Signed-off-by` trailer to your commit message. If you forget, amend the commit:
+
+```bash
+git commit --amend -s
+```
+
+### Branch rules
+
+- `main` and `develop` are protected -- all changes require a pull request
+- Branch naming: `<type>/<short-description>` (e.g. `feat/add-ssh-key-rotation`)
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
+
+## License
+
+This project is licensed under the [Mozilla Public License 2.0](LICENSE).
 
 ## Related
 
