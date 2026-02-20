@@ -74,9 +74,13 @@ jobs:
           set -euo pipefail
           kubectl apply -f python/tests/e2e/manifests/capi-core-crds.yaml
           kubectl apply -k shared/crds
+          # Override image before applying (avoids rolling update deadlock
+          # when the manifest image isn't available in kind)
+          pushd python/deploy > /dev/null
+          kustomize edit set image \
+            "ghcr.io/alpininsight/capi-provider-ssh-python:develop=${PROVIDER_IMAGE}"
+          popd > /dev/null
           kubectl apply -k python/deploy
-          kubectl -n capi-provider-ssh-system set image deployment/capi-provider-ssh-controller \
-            controller="${PROVIDER_IMAGE}"
 
       - name: Wait for provider deployment
         run: kubectl -n capi-provider-ssh-system rollout status deployment/capi-provider-ssh-controller --timeout=180s
