@@ -356,8 +356,10 @@ def _is_same_consumer(consumer_ref: dict | None, name: str, namespace: str) -> b
     """Return True when a consumerRef points to this SSHMachine."""
     if not consumer_ref:
         return False
-    return consumer_ref.get("kind", "SSHMachine") == "SSHMachine" and consumer_ref.get("name") == name and (
-        consumer_ref.get("namespace", namespace) == namespace
+    return (
+        consumer_ref.get("kind", "SSHMachine") == "SSHMachine"
+        and consumer_ref.get("name") == name
+        and (consumer_ref.get("namespace", namespace) == namespace)
     )
 
 
