@@ -67,7 +67,7 @@ spec:
                   type: string
                 failureMessage:
                   type: string
-      printcolumns:
+      additionalPrinterColumns:
         - name: Endpoint
           type: string
           jsonPath: .spec.controlPlaneEndpoint.host

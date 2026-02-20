@@ -95,7 +95,7 @@ spec:
                   type: string
                 failureMessage:
                   type: string
-      printcolumns:
+      additionalPrinterColumns:
         - name: Address
           type: string
           jsonPath: .spec.address

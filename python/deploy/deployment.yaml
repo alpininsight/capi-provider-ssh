@@ -21,10 +21,11 @@ spec:
         cluster.x-k8s.io/provider: infrastructure-ssh
     spec:
       serviceAccountName: capi-provider-ssh-controller
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       containers:
         - name: controller
-          image: ghcr.io/alpininsight/capi-provider-ssh:latest
+          image: ghcr.io/alpininsight/capi-provider-ssh-python:develop
           env:
             - name: SSH_CONNECT_TIMEOUT
               value: "30"
@@ -70,7 +71,30 @@ spec:
                 - ALL
             seccompProfile:
               type: RuntimeDefault
+          volumeMounts:
+            - name: kube-api-access
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3607
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        apiVersion: v1
+                        fieldPath: metadata.namespace
