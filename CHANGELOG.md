@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **python:** Enable kopf liveness endpoint for probes
+
 ### Features
 
 - **python:** Scaffold kopf controller with pyproject.toml
