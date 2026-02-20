@@ -7,7 +7,7 @@ WORKDIR /app
 
 # Copy all source and config for package installation
 COPY pyproject.toml uv.lock* README.md ./
-COPY src/ src/
+COPY capi_provider_ssh/ capi_provider_ssh/
 
 # Install production dependencies and the package itself
 RUN uv sync --no-dev --no-editable
@@ -20,4 +20,4 @@ RUN groupadd --gid 65532 nonroot && \
     useradd --uid 65532 --gid 65532 --no-create-home nonroot
 USER 65532:65532
 
-ENTRYPOINT ["kopf", "run", "--standalone", "--liveness=http://0.0.0.0:8080/healthz", "src/capi_provider_ssh/main.py"]
+ENTRYPOINT ["kopf", "run", "--standalone", "--liveness=http://0.0.0.0:8080/healthz", "capi_provider_ssh/main.py"]
