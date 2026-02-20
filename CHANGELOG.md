@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Miscellaneous
 
 - Add DCO and update README with contributing guidelines
+- Remove AI references and update .gitignore
 
 ## [0.1.0] - 2026-02-20
 
