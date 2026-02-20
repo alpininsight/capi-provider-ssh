@@ -98,7 +98,7 @@ jobs:
           kubectl get ns -o wide > /tmp/e2e-diagnostics/namespaces.txt
           kubectl get pods -A -o wide > /tmp/e2e-diagnostics/pods-all.txt
           kubectl -n capi-provider-ssh-system describe deployment capi-provider-ssh-controller \
-            > /tmp/e2e-diagnostics/provider-deployment.txt
+            > /tmp/e2e-diagnostics/provider-deployment.txt || true
           kubectl -n capi-provider-ssh-system logs deployment/capi-provider-ssh-controller --all-containers=true \
             > /tmp/e2e-diagnostics/provider-logs.txt || true
           for ns in $(kubectl get ns -l capi-provider-ssh-suite=real-ssh -o jsonpath='{.items[*].metadata.name}'); do
