@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 
 - **python:** Enable kopf liveness endpoint for probes
+- **python:** Harden runtime startup and add SSHCluster unit tests
+- **python:** Keep liveness enabled in hardened entrypoint
 
 ### Features
 
@@ -26,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Testing
 
 - **python:** Add unit tests for all controllers and SSH client
+- **python:** Add runtime startup regression guard
 
 ## [0.1.0] - 2026-02-20
 
