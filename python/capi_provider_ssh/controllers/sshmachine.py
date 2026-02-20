@@ -124,19 +124,112 @@ def _is_already_provisioned(status: dict, expected_provider_id: str) -> bool:
     return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
 
 
+def _machine_consumer_ref(name: str, namespace: str) -> dict:
+    """Build consumerRef payload for an SSHMachine."""
+    return {
+        "kind": "SSHMachine",
+        "name": name,
+        "namespace": namespace,
+    }
+
+
+def _is_same_consumer(consumer_ref: dict | None, name: str, namespace: str) -> bool:
+    """Return True when a consumerRef points to this SSHMachine."""
+    if not consumer_ref:
+        return False
+    return consumer_ref.get("kind", "SSHMachine") == "SSHMachine" and consumer_ref.get("name") == name and (
+        consumer_ref.get("namespace", namespace) == namespace
+    )
+
+
+def _patch_host_consumer(
+    api: kubernetes.client.CustomObjectsApi,
+    *,
+    namespace: str,
+    host_name: str,
+    consumer_ref: dict,
+    in_use: bool,
+    resource_version: str | None,
+) -> bool:
+    """Patch SSHHost consumerRef with optimistic concurrency (resourceVersion)."""
+    body: dict = {
+        "spec": {
+            "consumerRef": consumer_ref,
+        },
+        "status": {
+            "inUse": in_use,
+        },
+    }
+    if resource_version:
+        body["metadata"] = {"resourceVersion": resource_version}
+
+    try:
+        api.patch_namespaced_custom_object(
+            group=API_GROUP,
+            version=API_VERSION,
+            namespace=namespace,
+            plural="sshhosts",
+            name=host_name,
+            body=body,
+        )
+    except kubernetes.client.ApiException as e:
+        if e.status in {404, 409}:
+            return False
+        raise
+    return True
+
+
+def _apply_host_to_machine_patch(host_spec: dict, host_name: str, host_namespace: str, patch) -> None:
+    """Copy claimed host fields into SSHMachine spec patch."""
+    address = host_spec.get("address")
+    if not address:
+        raise kopf.PermanentError(f"SSHHost {host_namespace}/{host_name} is missing spec.address")
+    patch.spec["address"] = address
+    patch.spec["user"] = host_spec.get("user", "root")
+    patch.spec["sshKeyRef"] = host_spec.get("sshKeyRef", {})
+    patch.spec["hostRef"] = f"{host_namespace}/{host_name}"
+
+
+def _is_consumer_orphaned(
+    api: kubernetes.client.CustomObjectsApi,
+    *,
+    host_namespace: str,
+    consumer_ref: dict,
+) -> bool:
+    """Return True when an SSHHost consumerRef points to a missing SSHMachine."""
+    consumer_name = consumer_ref.get("name")
+    if not consumer_name:
+        return False
+    if consumer_ref.get("kind", "SSHMachine") != "SSHMachine":
+        return False
+
+    consumer_ns = consumer_ref.get("namespace", host_namespace)
+    try:
+        api.get_namespaced_custom_object(
+            group=API_GROUP,
+            version=API_VERSION,
+            namespace=consumer_ns,
+            plural="sshmachines",
+            name=consumer_name,
+        )
+        return False
+    except kubernetes.client.ApiException as e:
+        if e.status == 404:
+            return True
+        raise
+
+
 async def _choose_host(spec: dict, name: str, namespace: str, patch) -> bool:
     """Select and claim an SSHHost from the pool based on hostSelector.
 
     Returns True if a host was claimed (or address was already set).
     Returns False if no host is available (caller should requeue).
     """
-    # If address is already set (direct mode or previously claimed), nothing to do
-    if spec.get("address"):
-        return True
-
     host_selector = spec.get("hostSelector")
     if not host_selector:
-        # No hostSelector and no address -- invalid configuration
+        # Direct mode: address is required when hostSelector is not used.
+        if spec.get("address"):
+            return True
         patch.status["failureReason"] = "InvalidConfiguration"
         patch.status["failureMessage"] = "Either address or hostSelector must be provided"
         patch.status["conditions"] = [
@@ -156,55 +249,92 @@ async def _choose_host(spec: dict, name: str, namespace: str, patch) -> bool:
         namespace=namespace,
         plural="sshhosts",
     )
+    machine_consumer_ref = _machine_consumer_ref(name, namespace)
 
     # Filter by matchLabels and find unclaimed hosts
-    for host in hosts.get("items", []):
-        host_labels = host.get("metadata", {}).get("labels", {})
+    for host in sorted(hosts.get("items", []), key=lambda h: h.get("metadata", {}).get("name", "")):
+        host_meta = host.get("metadata", {})
+        host_name = host_meta.get("name")
+        if not host_name:
+            continue
+
+        host_labels = host_meta.get("labels", {})
         # Check all selector labels match
         if not all(host_labels.get(k) == v for k, v in match_labels.items()):
             continue
-        # Check if host is unclaimed (consumerRef is empty or absent)
-        consumer_ref = host.get("spec", {}).get("consumerRef", {})
+
+        host_spec = host.get("spec", {})
+        consumer_ref = host_spec.get("consumerRef", {})
+
+        # Already claimed by this machine -> idempotent reuse.
+        if _is_same_consumer(consumer_ref, name, namespace):
+            _apply_host_to_machine_patch(host_spec, host_name, namespace, patch)
+            logger.info("SSHMachine %s/%s reusing SSHHost %s", namespace, name, host_name)
+            return True
+
+        # Claimed by another machine: reclaim stale orphaned claims only.
         if consumer_ref and consumer_ref.get("name"):
+            if not _is_consumer_orphaned(api, host_namespace=namespace, consumer_ref=consumer_ref):
+                continue
+
+            logger.warning(
+                "SSHMachine %s/%s reclaiming stale SSHHost claim on %s from %s/%s",
+                namespace,
+                name,
+                host_name,
+                consumer_ref.get("namespace", namespace),
+                consumer_ref.get("name"),
+            )
+            cleared = _patch_host_consumer(
+                api,
+                namespace=namespace,
+                host_name=host_name,
+                consumer_ref={},
+                in_use=False,
+                resource_version=host_meta.get("resourceVersion"),
+            )
+            if not cleared:
+                continue
+
+            try:
+                host = api.get_namespaced_custom_object(
+                    group=API_GROUP,
+                    version=API_VERSION,
+                    namespace=namespace,
+                    plural="sshhosts",
+                    name=host_name,
+                )
+            except kubernetes.client.ApiException as e:
+                if e.status == 404:
+                    continue
+                raise
+
+            host_meta = host.get("metadata", {})
+            host_spec = host.get("spec", {})
+            consumer_ref = host_spec.get("consumerRef", {})
+            if consumer_ref and consumer_ref.get("name"):
+                continue
+
+        # Claim this host with optimistic concurrency.
+        claimed = _patch_host_consumer(
+            api,
+            namespace=namespace,
+            host_name=host_name,
+            consumer_ref=machine_consumer_ref,
+            in_use=True,
+            resource_version=host_meta.get("resourceVersion"),
+        )
+        if not claimed:
             continue
 
-        # Claim this host
-        host_name = host["metadata"]["name"]
-        host_spec = host.get("spec", {})
-
-        # Set consumerRef on the SSHHost
-        api.patch_namespaced_custom_object(
-            group=API_GROUP,
-            version=API_VERSION,
-            namespace=namespace,
-            plural="sshhosts",
-            name=host_name,
-            body={
-                "spec": {
-                    "consumerRef": {
-                        "kind": "SSHMachine",
-                        "name": name,
-                        "namespace": namespace,
-                    },
-                },
-                "status": {
-                    "inUse": True,
-                },
-            },
-        )
-
-        # Copy host details to the SSHMachine
-        patch.spec["address"] = host_spec["address"]
-        patch.spec["user"] = host_spec.get("user", "root")
-        patch.spec["sshKeyRef"] = host_spec.get("sshKeyRef", {})
-        patch.spec["hostRef"] = f"{namespace}/{host_name}"
+        _apply_host_to_machine_patch(host_spec, host_name, namespace, patch)
 
         logger.info(
             "SSHMachine %s/%s claimed SSHHost %s (address=%s)",
             namespace,
             name,
             host_name,
-            host_spec["address"],
+            host_spec.get("address"),
         )
         return True
 
@@ -229,28 +359,51 @@ async def _release_host(spec: dict, name: str, namespace: str) -> None:
         return
 
     api = kubernetes.client.CustomObjectsApi()
-    try:
-        api.patch_namespaced_custom_object(
-            group=API_GROUP,
-            version=API_VERSION,
+    for _attempt in range(3):
+        try:
+            host = api.get_namespaced_custom_object(
+                group=API_GROUP,
+                version=API_VERSION,
+                namespace=host_ns,
+                plural="sshhosts",
+                name=host_name,
+            )
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                logger.warning("SSHHost %s not found during release (already deleted?)", host_ref)
+                return
+            logger.warning("Failed reading SSHHost %s for release: %s", host_ref, e)
+            return
+
+        current_consumer = host.get("spec", {}).get("consumerRef", {})
+        if (
+            current_consumer
+            and current_consumer.get("name")
+            and not _is_same_consumer(current_consumer, name, namespace)
+        ):
+            logger.warning(
+                "SSHMachine %s/%s skipped releasing SSHHost %s (owned by %s/%s)",
+                namespace,
+                name,
+                host_ref,
+                current_consumer.get("namespace", host_ns),
+                current_consumer.get("name"),
+            )
+            return
+
+        cleared = _patch_host_consumer(
+            api,
             namespace=host_ns,
-            plural="sshhosts",
-            name=host_name,
-            body={
-                "spec": {
-                    "consumerRef": {},
-                },
-                "status": {
-                    "inUse": False,
-                },
-            },
+            host_name=host_name,
+            consumer_ref={},
+            in_use=False,
+            resource_version=host.get("metadata", {}).get("resourceVersion"),
         )
-        logger.info("SSHMachine %s/%s released SSHHost %s", namespace, name, host_ref)
-    except kubernetes.client.ApiException as e:
-        if e.status == 404:
-            logger.warning("SSHHost %s not found during release (already deleted?)", host_ref)
-        else:
-            logger.warning("Failed to release SSHHost %s: %s", host_ref, e)
+        if cleared:
+            logger.info("SSHMachine %s/%s released SSHHost %s", namespace, name, host_ref)
+            return
+
+    logger.warning("SSHMachine %s/%s failed to release SSHHost %s after retries", namespace, name, host_ref)
 
 
 @kopf.on.create(API_GROUP, API_VERSION, "sshmachines")
