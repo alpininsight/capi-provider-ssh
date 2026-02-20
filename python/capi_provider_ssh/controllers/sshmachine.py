@@ -201,7 +201,10 @@ async def _choose_host(spec: dict, name: str, namespace: str, patch) -> bool:
 
         logger.info(
             "SSHMachine %s/%s claimed SSHHost %s (address=%s)",
-            namespace, name, host_name, host_spec["address"],
+            namespace,
+            name,
+            host_name,
+            host_spec["address"],
         )
         return True
 
