@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Rust
+rust/target/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.secret
+.secrets/
+
+# AI tooling
+.claude/
+.playwright-mcp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# macOS
+.DS_Store
+
+# Kubernetes
+*.kubeconfig
+kubeconfig
