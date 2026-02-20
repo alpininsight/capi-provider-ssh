@@ -1,13 +1,15 @@
 """Tests for SSHMachine controller."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import kopf
 import pytest
 
 from capi_provider_ssh.controllers.sshmachine import (
+    _choose_host,
     _has_machine_owner,
     _is_already_provisioned,
+    _release_host,
     sshmachine_delete,
     sshmachine_reconcile,
 )
@@ -258,3 +260,142 @@ class TestSSHMachineDelete:
         ):
             # Should not raise
             await sshmachine_delete(spec=sshmachine_spec, name="m1", namespace="default")
+
+    @pytest.mark.asyncio
+    async def test_delete_releases_host(self, sshmachine_spec):
+        """Delete must release claimed SSHHost back to pool."""
+        spec_with_host = {**sshmachine_spec, "hostRef": "default/host-2"}
+        mock_api = MagicMock()
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+                return_value=mock_api,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                side_effect=ConnectionRefusedError("refused"),
+            ),
+        ):
+            await sshmachine_delete(spec=spec_with_host, name="m1", namespace="default")
+            # Verify SSHHost was patched to clear consumerRef
+            mock_api.patch_namespaced_custom_object.assert_called_once()
+            call_kwargs = mock_api.patch_namespaced_custom_object.call_args
+            assert call_kwargs[1]["name"] == "host-2"
+            body = call_kwargs[1]["body"]
+            assert body["spec"]["consumerRef"] == {}
+            assert body["status"]["inUse"] is False
+
+
+class TestChooseHost:
+    @pytest.mark.asyncio
+    async def test_direct_address_returns_true(self, sshmachine_spec):
+        """If address is already set, chooseHost does nothing."""
+        patch_obj = kopf.Patch({})
+        result = await _choose_host(sshmachine_spec, "m1", "default", patch_obj)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_no_address_no_selector_raises(self):
+        """Missing both address and hostSelector is a permanent error."""
+        patch_obj = kopf.Patch({})
+        with pytest.raises(kopf.PermanentError, match="Either address or hostSelector"):
+            await _choose_host({}, "m1", "default", patch_obj)
+
+    @pytest.mark.asyncio
+    async def test_claims_first_available_host(self, sshmachine_spec_with_hostselector, sshhost_items):
+        """Should claim host-2 (first unclaimed CP host)."""
+        mock_api = MagicMock()
+        mock_api.list_namespaced_custom_object.return_value = sshhost_items
+        mock_api.patch_namespaced_custom_object.return_value = None
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            patch_obj = kopf.Patch({})
+            result = await _choose_host(sshmachine_spec_with_hostselector, "m1", "default", patch_obj)
+            assert result is True
+            # Should have claimed host-2 (host-1 is already claimed, host-3 is worker)
+            assert patch_obj["spec"]["address"] == "65.21.157.69"
+            assert patch_obj["spec"]["hostRef"] == "default/host-2"
+            assert patch_obj["spec"]["sshKeyRef"]["name"] == "hetzner-ssh-key"
+            # SSHHost should have been patched with consumerRef
+            mock_api.patch_namespaced_custom_object.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_no_available_host_requeues(self, sshmachine_spec_with_hostselector):
+        """All hosts claimed -> TemporaryError with delay."""
+        all_claimed = {
+            "items": [
+                {
+                    "metadata": {"name": "h1", "labels": {"role": "control-plane", "cluster": "hetzner-staging"}},
+                    "spec": {
+                        "address": "1.2.3.4",
+                        "sshKeyRef": {"name": "k"},
+                        "consumerRef": {"kind": "SSHMachine", "name": "other", "namespace": "default"},
+                    },
+                },
+            ],
+        }
+        mock_api = MagicMock()
+        mock_api.list_namespaced_custom_object.return_value = all_claimed
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            patch_obj = kopf.Patch({})
+            with pytest.raises(kopf.TemporaryError, match="No available SSHHost"):
+                await _choose_host(sshmachine_spec_with_hostselector, "m1", "default", patch_obj)
+
+
+class TestReleaseHost:
+    @pytest.mark.asyncio
+    async def test_release_clears_consumer_ref(self):
+        """Release should clear consumerRef on the SSHHost."""
+        spec = {"hostRef": "default/host-2"}
+        mock_api = MagicMock()
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            await _release_host(spec, "m1", "default")
+            mock_api.patch_namespaced_custom_object.assert_called_once()
+            body = mock_api.patch_namespaced_custom_object.call_args[1]["body"]
+            assert body["spec"]["consumerRef"] == {}
+            assert body["status"]["inUse"] is False
+
+    @pytest.mark.asyncio
+    async def test_release_no_hostref_is_noop(self):
+        """No hostRef means nothing to release."""
+        mock_api = MagicMock()
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            await _release_host({}, "m1", "default")
+            mock_api.patch_namespaced_custom_object.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_release_missing_host_does_not_raise(self):
+        """If SSHHost was already deleted, release should not raise."""
+        import kubernetes as k8s
+
+        spec = {"hostRef": "default/host-gone"}
+        mock_api = MagicMock()
+        mock_api.patch_namespaced_custom_object.side_effect = k8s.client.ApiException(status=404)
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            # Should not raise
+            await _release_host(spec, "m1", "default")

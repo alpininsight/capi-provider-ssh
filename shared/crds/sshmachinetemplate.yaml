@@ -26,12 +26,13 @@ spec:
                   properties:
                     spec:
                       type: object
-                      required:
-                        - address
+                      description: >-
+                        Either address (direct SSH) or hostSelector (pool-based
+                        selection from SSHHost inventory) must be provided.
                       properties:
                         address:
                           type: string
-                          description: SSH-reachable hostname or IP.
+                          description: SSH-reachable hostname or IP (direct mode).
                         port:
                           type: integer
                           default: 22
@@ -50,6 +51,17 @@ spec:
                             key:
                               type: string
                               default: value
+                        hostSelector:
+                          type: object
+                          description: >-
+                            Label selector for SSHHost pool-based selection.
+                            Takes precedence over address if both are set.
+                          properties:
+                            matchLabels:
+                              type: object
+                              additionalProperties:
+                                type: string
+                              description: Labels that SSHHost CRs must match.
   scope: Namespaced
   names:
     plural: sshmachinetemplates

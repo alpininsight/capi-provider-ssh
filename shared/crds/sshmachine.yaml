@@ -18,12 +18,12 @@ spec:
           properties:
             spec:
               type: object
-              required:
-                - address
               properties:
                 address:
                   type: string
-                  description: SSH-reachable hostname or IP (e.g. Tailscale IP).
+                  description: >-
+                    SSH-reachable hostname or IP. Set directly or populated
+                    by the controller from an SSHHost when hostSelector is used.
                 port:
                   type: integer
                   default: 22
@@ -46,6 +46,23 @@ spec:
                       type: string
                       default: value
                       description: Key within the Secret that holds the private key data.
+                hostSelector:
+                  type: object
+                  description: >-
+                    Label selector for SSHHost pool-based selection.
+                    When set, the controller claims an available SSHHost
+                    matching these labels and copies its address/user/sshKeyRef.
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                      description: Labels that SSHHost CRs must match.
+                hostRef:
+                  type: string
+                  description: >-
+                    Reference to the claimed SSHHost in namespace/name format.
+                    Set by the controller when a host is claimed via hostSelector.
                 providerID:
                   type: string
                   description: "Provider ID in the format ssh://<address>."
