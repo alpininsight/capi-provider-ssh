@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add DCO and update README with contributing guidelines
 - Remove AI references and update .gitignore
 
+### Testing
+
+- **python:** Add unit tests for all controllers and SSH client
+
 ## [0.1.0] - 2026-02-20
 
 ### Miscellaneous
