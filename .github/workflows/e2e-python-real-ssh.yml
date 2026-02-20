@@ -1,6 +1,14 @@
 name: E2E Python Real SSH
 
 on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - ".github/workflows/e2e-python-real-ssh.yml"
+      - "python/src/**"
+      - "python/deploy/**"
+      - "python/tests/e2e/**"
+      - "shared/crds/**"
   workflow_dispatch:
   schedule:
     - cron: "30 2 * * *"
