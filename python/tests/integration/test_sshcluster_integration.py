@@ -163,9 +163,17 @@ class TestSSHClusterDelete:
         # Verify deletion (may take a moment for finalizers)
         import time
 
+        import kubernetes as k8s
+
+        deleted = False
         for _ in range(10):
             try:
                 get_sshcluster(custom_api, name, test_namespace)
                 time.sleep(0.5)
-            except Exception:
-                break
+            except k8s.client.ApiException as e:
+                if e.status == 404:
+                    deleted = True
+                    break
+                raise
+
+        assert deleted, f"SSHCluster {name} was not deleted within 5s"
