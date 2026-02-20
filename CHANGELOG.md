@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 
 - **python:** Scaffold kopf controller with pyproject.toml
+- **python:** Implement SSHCluster controller
 
 ### Miscellaneous
 
