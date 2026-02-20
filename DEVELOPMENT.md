@@ -121,6 +121,9 @@ uv sync
 uvx pre-commit install
 uvx pre-commit install --hook-type commit-msg
 
+# Validate configured hooks
+uvx pre-commit validate-config
+
 # Run tests
 uv run pytest
 
