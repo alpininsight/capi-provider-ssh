@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Features
+
+- **python:** Scaffold kopf controller with pyproject.toml
+
 ### Miscellaneous
 
 - Add DCO and update README with contributing guidelines
