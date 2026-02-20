@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Enable kopf liveness endpoint for probes
 - **python:** Harden runtime startup and add SSHCluster unit tests
 - **python:** Keep liveness enabled in hardened entrypoint
+- **python:** Harden runtime startup by removing uv run from ENTRYPOINT
 
 ### Features
 
