@@ -7,7 +7,6 @@ from typing import Any
 
 import kubernetes
 
-
 API_GROUP = "infrastructure.alpininsight.ai"
 API_VERSION = "v1beta1"
 
@@ -133,4 +132,5 @@ def wait_for_status(
             return resource
         time.sleep(interval)
     status = last_resource.get("status", {}) if last_resource else {}
-    raise TimeoutError(f"{plural}/{name} in {namespace} did not meet condition within {timeout}s. Last status: {status}")
+    msg = f"{plural}/{name} in {namespace} did not meet condition within {timeout}s. Last status: {status}"
+    raise TimeoutError(msg)
