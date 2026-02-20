@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Unblock Docker build and publish on internal PRs
 - **test:** Assert SSHCluster deletion succeeds after retry loop
 - **test:** Resolve ruff lint and format issues in integration tests
+- **crds:** Use additionalPrinterColumns instead of printcolumns
+- **deploy:** Harden deployment for Gatekeeper compliance and kind e2e
 
 ### Features
 
