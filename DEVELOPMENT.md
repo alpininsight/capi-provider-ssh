@@ -9,7 +9,7 @@ This guide covers the tools and setup required for local development of capi-pro
 | **uv** | Python package manager | 0.9+ |
 | **Python** | Runtime (managed by uv) | 3.13+ |
 | **Rust** | Rust toolchain (rustup) | stable |
-| **Docker** | Container builds | 24+ |
+| **nerdctl** | Container builds (via Lima/containerd) | 2.0+ |
 | **kubectl** | Kubernetes CLI | 1.30+ |
 | **clusterctl** | Cluster API CLI | 1.9+ |
 | **kustomize** | Manifest rendering | 5+ |
@@ -36,11 +36,9 @@ source ~/.bashrc  # or ~/.zshrc
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
-# Docker
-sudo apt update
-sudo apt install -y docker.io docker-compose-v2
-sudo usermod -aG docker $USER
-# Log out and back in for group changes
+# containerd + nerdctl
+# See: https://github.com/containerd/nerdctl
+# On Lima VMs, nerdctl is available via: limactl shell <vm> nerdctl
 
 # kubectl
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')/kubectl"
@@ -70,8 +68,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
-# Docker Desktop
-brew install --cask docker
+# Lima (containerd + nerdctl included)
+brew install lima
 
 # Kubernetes tools
 brew install kubectl clusterctl kustomize
@@ -82,9 +80,6 @@ brew install gitversion
 
 # Optional: kind (local management cluster)
 brew install kind
-
-# Optional: Lima (macOS VM management cluster)
-brew install lima
 ```
 
 ## Shell Setup (zsh)
@@ -105,7 +100,7 @@ Run these commands to verify your setup:
 uv --version          # Should show 0.9+
 rustc --version       # Should show stable
 cargo --version       # Should show matching version
-docker --version      # Should show 24+
+nerdctl --version     # Should show 2.0+ (via Lima)
 kubectl version --client  # Should show 1.30+
 clusterctl version    # Should show 1.9+
 kustomize version     # Should show 5+
