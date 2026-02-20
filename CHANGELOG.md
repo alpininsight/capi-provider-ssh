@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Address PR feedback and stabilize workflow checks
 - **python:** Make package README available in docker build context
 - **ci:** Unblock Docker build and publish on internal PRs
+- **test:** Assert SSHCluster deletion succeeds after retry loop
 
 ### Features
 
@@ -34,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **python:** Add unit tests for all controllers and SSH client
 - **python:** Add runtime startup regression guard
+- **python:** Add integration tests for SSHCluster and SSHMachine 
 
 ## [0.1.0] - 2026-02-20
 
