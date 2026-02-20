@@ -18,13 +18,11 @@ def test_docker_entrypoint_uses_kopf_directly() -> None:
     entrypoint = next((line for line in lines if line.startswith("ENTRYPOINT")), "")
     assert entrypoint, "Dockerfile must define an ENTRYPOINT."
     assert '"uv", "run"' not in entrypoint, (
-        "Regression guard: ENTRYPOINT must not use `uv run` because it may write "
-        "to `~/.cache/uv` at runtime."
+        "Regression guard: ENTRYPOINT must not use `uv run` because it may write to `~/.cache/uv` at runtime."
     )
     assert '"kopf", "run"' in entrypoint, "ENTRYPOINT must execute kopf directly from the venv."
-    assert '--liveness=http://0.0.0.0:8080/healthz' in entrypoint, (
-        "Regression guard: probes target /healthz on 8080, so Kopf liveness "
-        "must be enabled in ENTRYPOINT."
+    assert "--liveness=http://0.0.0.0:8080/healthz" in entrypoint, (
+        "Regression guard: probes target /healthz on 8080, so Kopf liveness must be enabled in ENTRYPOINT."
     )
 
 

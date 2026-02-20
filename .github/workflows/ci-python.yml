@@ -1,0 +1,98 @@
+name: CI Python
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-python-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python-quality:
+    name: Python quality (3.13)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.13"]
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests
+
+      - name: Pytest with coverage
+        run: uv run pytest -q --cov=src --cov-report=term-missing --cov-report=xml
+
+      - name: Upload Python coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage
+          path: python/coverage.xml
+          if-no-files-found: ignore
+
+  manifests:
+    name: Validate CRDs and manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          VERSION="0.6.7"
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/v${VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz kubeconform
+          sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
+
+      - name: Render manifests
+        run: |
+          set -euo pipefail
+          kubectl kustomize shared/crds > /tmp/shared-crds.yaml
+          kubectl kustomize python/deploy > /tmp/python-deploy.yaml
+
+      - name: Validate manifests
+        run: |
+          set -euo pipefail
+          kubeconform -summary -strict -ignore-missing-schemas /tmp/shared-crds.yaml /tmp/python-deploy.yaml
+
+      - name: Upload rendered manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-manifests
+          path: |
+            /tmp/shared-crds.yaml
+            /tmp/python-deploy.yaml
+          if-no-files-found: ignore
