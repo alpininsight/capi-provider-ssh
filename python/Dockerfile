@@ -5,14 +5,12 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# Copy dependency files first for layer caching
+# Copy all source and config for package installation
 COPY pyproject.toml uv.lock* README.md ./
-
-# Install production dependencies only
-RUN uv sync --no-dev --no-editable
-
-# Copy source code
 COPY src/ src/
+
+# Install production dependencies and the package itself
+RUN uv sync --no-dev --no-editable
 
 # Use the virtualenv created at build time; avoid runtime `uv run` cache writes.
 ENV PATH="/app/.venv/bin:${PATH}"
