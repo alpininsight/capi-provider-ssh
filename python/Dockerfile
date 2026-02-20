@@ -19,4 +19,4 @@ RUN groupadd --gid 65532 nonroot && \
     useradd --uid 65532 --gid 65532 --no-create-home nonroot
 USER 65532:65532
 
-ENTRYPOINT ["uv", "run", "kopf", "run", "--standalone", "src/capi_provider_ssh/main.py"]
+ENTRYPOINT ["uv", "run", "kopf", "run", "--standalone", "--liveness=http://0.0.0.0:8080/healthz", "src/capi_provider_ssh/main.py"]
