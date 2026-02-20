@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Scaffold kopf controller with pyproject.toml
 - **python:** Implement SSHCluster controller
 - **python:** Implement SSH client wrapper
+- **python:** Implement SSHMachine controller
 
 ### Miscellaneous
 
