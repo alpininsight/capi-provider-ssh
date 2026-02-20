@@ -20,7 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **test:** Resolve ruff lint and format issues in integration tests
 - **crds:** Use additionalPrinterColumns instead of printcolumns
 - **deploy:** Harden deployment for Gatekeeper compliance and kind e2e
+- **docker:** Copy source before uv sync so package is installed
+- **python:** Switch to flat layout for Python 3.14 compatibility
 - **docker:** Copy source before uv sync so package is installed 
+- **ci:** Update CI paths for flat layout and resolve merge conflict
 
 ### Features
 
@@ -29,11 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Implement SSH client wrapper
 - **python:** Implement SSHMachine controller
 - **ci:** Split #12 into CI and container workflows
+- **crds:** Add SSHHost CRD for Metal3-style host inventory
 
 ### Miscellaneous
 
 - Add DCO and update README with contributing guidelines
 - Remove AI references and update .gitignore
+
+### Styling
+
+- Format sshmachine.py for ruff compliance
 
 ### Testing
 
