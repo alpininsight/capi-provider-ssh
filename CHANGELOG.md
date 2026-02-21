@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **security:** Add ssh key lifecycle runbook
 - **roadmap:** Replace vendor-centric plugin taxonomy with protocol-based design
+- Add FAQ covering RBAC, cleanup, health probing, and image tags
+- **operations:** Add live rollout validation and teardown runbook
+- **flux:** Make canary teardown GitOps-safe
+- **operations:** Add DNS cutover runbook
+- **faq:** Add staging-to-production DNS swap guidance
 
 ### Features
 

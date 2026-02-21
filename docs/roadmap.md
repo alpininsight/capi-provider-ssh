@@ -14,6 +14,8 @@
 | Pause/unpause support | Implemented |
 | SSH key lifecycle (SOPS/External Secrets + rotation runbook) | Implemented |
 | Flux rollout gate (explicit unsuspend/rollback runbook) | Implemented |
+| Live rollout validation + teardown runbook | Implemented |
+| DNS cutover runbook (staging promotion + rollback gate) | Implemented |
 
 ## Planned: Image Builder Support (v0.2.x)
 
