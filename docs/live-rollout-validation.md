@@ -87,12 +87,30 @@ Validation:
 Teardown:
 
 ```bash
+# Make deletion durable in GitOps before deleting the Cluster object.
+#
+# Preferred path: remove the canary manifest from Git, push, then reconcile.
+# Alternative fast path: suspend capi-clusters if Git change is not immediate.
+flux -n flux-system suspend kustomization capi-clusters
+
 # Remove canary cluster resources
 kubectl -n <namespace> delete cluster <canary-cluster>
 
 # Verify cleanup (finalizers + host release)
 kubectl -n <namespace> get machines,sshmachines
 kubectl -n <namespace> get sshhosts -o custom-columns='NAME:.metadata.name,CONSUMER:.spec.consumerRef.name'
+```
+
+Git-first durable teardown (preferred):
+
+```bash
+# In your Git repo containing capi-clusters manifests:
+git rm <path-to-canary-cluster-manifest.yaml>
+git commit -m "chore: remove canary cluster after rollout validation"
+git push
+
+flux -n flux-system reconcile source git flux-system
+flux -n flux-system reconcile kustomization capi-clusters --with-source
 ```
 
 Expected teardown outcome:
