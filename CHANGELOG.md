@@ -29,10 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Requeue reboot remediation until machine is ready
 - **python:** Prioritize unknown hosts and clear dry-run failures
 - **flux:** Add explicit Flux rollout unsuspend step 
+- **docs:** Add provider-first ordering to kubectl fallback in flux runbook
 
 ### Documentation
 
 - **security:** Add ssh key lifecycle runbook
+- **roadmap:** Replace vendor-centric plugin taxonomy with protocol-based design
 
 ### Features
 
@@ -50,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add DCO and update README with contributing guidelines
 - Remove AI references and update .gitignore
 - **repo:** Add pre-commit config and conventional commit hook
+- **gitignore:** Ignore coverage artifact
 
 ### Styling
 
