@@ -165,6 +165,16 @@ spec:
 | **Dry-run** | Validate prerequisites without executing bootstrap |
 | **Reboot remediation** | In-band SSH reboot for machine remediation |
 
+## SSH Key Lifecycle Boundary
+
+The provider consumes SSH private keys from Kubernetes Secrets referenced by
+`spec.sshKeyRef`; it does not generate, rotate, or escrow keys itself.
+
+- Provider contract: `spec.sshKeyRef.name` plus optional `spec.sshKeyRef.key`
+  (defaults to `value`)
+- Operational lifecycle: managed via GitOps (SOPS or External Secrets)
+- Rotation and rollback procedure: [docs/ssh-key-lifecycle.md](ssh-key-lifecycle.md)
+
 ## What the Infrastructure Provider Does NOT Do
 
 | Capability | Why Not | Where It Belongs |
