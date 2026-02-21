@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Requeue reboot remediation until machine is ready
 - **python:** Prioritize unknown hosts and clear dry-run failures
 
+### Documentation
+
+- **security:** Add ssh key lifecycle runbook
+
 ### Features
 
 - **python:** Scaffold kopf controller with pyproject.toml
