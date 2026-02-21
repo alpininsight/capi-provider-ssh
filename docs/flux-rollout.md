@@ -25,9 +25,21 @@ flux -n flux-system resume kustomization capi-clusters
 flux -n flux-system reconcile kustomization capi-clusters --with-source
 ```
 
-If `flux` CLI is unavailable, use `kubectl`:
+If `flux` CLI is unavailable, use `kubectl`. The same ordering applies —
+reconcile source and provider **before** unsuspending the cluster layer:
 
 ```bash
+# 1) Trigger source + provider reconcile first
+kubectl -n flux-system annotate gitrepository flux-system \
+  reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
+kubectl -n flux-system annotate kustomization capi-provider-ssh \
+  reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
+
+# 2) Wait for provider to be ready
+kubectl -n flux-system wait kustomization/capi-provider-ssh \
+  --for=condition=Ready --timeout=120s
+
+# 3) Unsuspend cluster layer
 kubectl -n flux-system patch kustomization capi-clusters --type=merge \
   -p '{"spec":{"suspend":false}}'
 kubectl -n flux-system annotate kustomization capi-clusters \
@@ -35,6 +47,8 @@ kubectl -n flux-system annotate kustomization capi-clusters \
 ```
 
 ## Verification
+
+Allow up to 2 minutes for CAPI machines to reconcile after unsuspend.
 
 ```bash
 # Flux status
@@ -46,6 +60,9 @@ kubectl get sshhosts,sshmachines -A
 
 # Provider controller health
 kubectl -n capi-provider-ssh-system get deploy,pods
+
+# Wait for machines to reach Running phase (optional)
+kubectl wait machines -A --for=jsonpath='{.status.phase}'=Running --timeout=120s
 ```
 
 ## Rollback
@@ -56,4 +73,13 @@ flux -n flux-system suspend kustomization capi-clusters
 
 # Reconcile provider layer back to known state if needed
 flux -n flux-system reconcile kustomization capi-provider-ssh --with-source
+```
+
+If `flux` CLI is unavailable:
+
+```bash
+kubectl -n flux-system patch kustomization capi-clusters --type=merge \
+  -p '{"spec":{"suspend":true}}'
+kubectl -n flux-system annotate kustomization capi-provider-ssh \
+  reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 ```
