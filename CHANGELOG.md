@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - **security:** Add ssh key lifecycle runbook
+- **roadmap:** Replace vendor-centric plugin taxonomy with protocol-based design
 
 ### Features
 
