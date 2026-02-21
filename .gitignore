@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .venv/
+.coverage
 *.egg-info/
 dist/
 build/
