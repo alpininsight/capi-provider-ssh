@@ -29,20 +29,20 @@ To pre-pull all required images for offline development:
 
 ```bash
 # Python provider
-docker pull python:3.13-slim
+nerdctl pull python:3.13-slim
 
 # Rust provider
-docker pull rust:latest
-docker pull debian:bookworm-slim
+nerdctl pull rust:latest
+nerdctl pull debian:bookworm-slim
 
 # Testing (kind)
-docker pull kindest/node:v1.34.4
+nerdctl pull kindest/node:v1.34.4
 ```
 
 ## Check Available Images
 
 ```bash
-docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+nerdctl images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
 ```
 
 ## Version Policy

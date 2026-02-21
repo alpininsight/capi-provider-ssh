@@ -14,10 +14,16 @@ rust/target/
 .env.*
 !.env.example
 *.secret
+*.secrets
 .secrets/
 
 # AI tooling
 .claude/
+CLAUDE.md
+CLAUDE.local.md
+.ai/
+.copilot/
+.cursor/
 .playwright-mcp/
 
 # IDE
@@ -27,7 +33,20 @@ rust/target/
 
 # macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Temporary files
+*.tmp
+*.bak
+*~
 
 # Kubernetes
 *.kubeconfig
 kubeconfig
+
+# SSH keys (should never be committed)
+*.pem
+*.key
+id_rsa*

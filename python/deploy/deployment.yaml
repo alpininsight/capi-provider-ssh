@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: capi-provider-ssh-controller
+  namespace: capi-provider-ssh-system
+  labels:
+    app.kubernetes.io/name: capi-provider-ssh
+    app.kubernetes.io/component: controller
+    cluster.x-k8s.io/provider: infrastructure-ssh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: capi-provider-ssh
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: capi-provider-ssh
+        app.kubernetes.io/component: controller
+        cluster.x-k8s.io/provider: infrastructure-ssh
+    spec:
+      serviceAccountName: capi-provider-ssh-controller
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: controller
+          image: ghcr.io/alpininsight/capi-provider-ssh-python:develop
+          env:
+            - name: SSH_CONNECT_TIMEOUT
+              value: "30"
+            - name: SSH_COMMAND_TIMEOUT
+              value: "300"
+            - name: RECONCILE_INTERVAL
+              value: "60"
+            - name: MAX_RETRIES
+              value: "3"
+            - name: RETRY_DELAY
+              value: "10"
+          ports:
+            - name: health
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: kube-api-access
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3607
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        apiVersion: v1
+                        fieldPath: metadata.namespace

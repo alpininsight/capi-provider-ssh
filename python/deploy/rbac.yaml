@@ -1,0 +1,58 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: capi-provider-ssh-controller
+  namespace: capi-provider-ssh-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: capi-provider-ssh-controller
+rules:
+  # CRDs owned by this provider
+  - apiGroups: ["infrastructure.alpininsight.ai"]
+    resources: ["sshclusters", "sshhosts", "sshmachines", "sshmachinetemplates"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["infrastructure.alpininsight.ai"]
+    resources: ["sshclusters/status", "sshhosts/status", "sshmachines/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["infrastructure.alpininsight.ai"]
+    resources: ["sshclusters/finalizers", "sshmachines/finalizers"]
+    verbs: ["update"]
+  # CAPI owner resources (read-only)
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["clusters", "machines"]
+    verbs: ["get", "list", "watch"]
+  # CRD discovery for dynamic watch setup and contract checks
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  # Secrets for SSH keys
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  # Events for status reporting
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Kopf needs these for leader election and state
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: capi-provider-ssh-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: capi-provider-ssh-controller
+subjects:
+  - kind: ServiceAccount
+    name: capi-provider-ssh-controller
+    namespace: capi-provider-ssh-system
