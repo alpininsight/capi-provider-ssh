@@ -482,10 +482,16 @@ async def _choose_host(spec: dict, name: str, namespace: str, patch) -> bool:
     )
     machine_consumer_ref = _machine_consumer_ref(name, namespace)
 
-    # Sort hosts: ready hosts first, then by name for deterministic selection.
+    # Sort hosts: ready first, unknown next, explicitly failed last.
     def _host_sort_key(h):
-        is_ready = h.get("status", {}).get("ready") is True
-        return (not is_ready, h.get("metadata", {}).get("name", ""))
+        ready = h.get("status", {}).get("ready")
+        if ready is True:
+            readiness_rank = 0
+        elif ready is False:
+            readiness_rank = 2
+        else:
+            readiness_rank = 1
+        return (readiness_rank, h.get("metadata", {}).get("name", ""))
 
     # Filter by matchLabels and find unclaimed hosts
     for host in sorted(hosts.get("items", []), key=_host_sort_key):
@@ -762,6 +768,8 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
                 f"Dry-run passed: SSH to {address}, bootstrap data ready",
             ),
         ]
+        patch.status["failureReason"] = None
+        patch.status["failureMessage"] = None
         logger.info("SSHMachine %s/%s dry-run passed", namespace, name)
         return
 

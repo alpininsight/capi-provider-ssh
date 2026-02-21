@@ -311,6 +311,8 @@ class TestSSHMachineDryRun:
         assert conditions[0]["type"] == "DryRunValidated"
         assert conditions[0]["reason"] == "PreflightPassed"
         assert "SSH to 100.64.0.10" in conditions[0]["message"]
+        assert patch_obj["status"]["failureReason"] is None
+        assert patch_obj["status"]["failureMessage"] is None
 
     @pytest.mark.asyncio
     async def test_dryrun_fails_on_ssh_unreachable(self, sshmachine_meta_with_owner):
@@ -473,6 +475,53 @@ class TestChooseHost:
             assert patch_obj["spec"]["sshKeyRef"]["name"] == "hetzner-ssh-key"
             # SSHHost should have been patched with consumerRef
             mock_api.patch_namespaced_custom_object.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_unchecked_host_preferred_over_failed_host(self, sshmachine_spec_with_hostselector):
+        """Unknown health state should be preferred over explicitly failed hosts."""
+        hosts = {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "a-failed",
+                        "resourceVersion": "20",
+                        "labels": {"role": "control-plane", "cluster": "hetzner-staging"},
+                    },
+                    "spec": {
+                        "address": "10.0.0.20",
+                        "sshKeyRef": {"name": "hetzner-ssh-key", "key": "value"},
+                        "consumerRef": {},
+                    },
+                    "status": {"ready": False},
+                },
+                {
+                    "metadata": {
+                        "name": "z-unknown",
+                        "resourceVersion": "21",
+                        "labels": {"role": "control-plane", "cluster": "hetzner-staging"},
+                    },
+                    "spec": {
+                        "address": "10.0.0.21",
+                        "sshKeyRef": {"name": "hetzner-ssh-key", "key": "value"},
+                        "consumerRef": {},
+                    },
+                },
+            ],
+        }
+        mock_api = MagicMock()
+        mock_api.list_namespaced_custom_object.return_value = hosts
+        mock_api.get_namespaced_custom_object.return_value = {"metadata": {"name": "existing"}}
+        mock_api.patch_namespaced_custom_object.return_value = None
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            patch_obj = kopf.Patch({})
+            result = await _choose_host(sshmachine_spec_with_hostselector, "m1", "default", patch_obj)
+            assert result is True
+            assert patch_obj["spec"]["hostRef"] == "default/z-unknown"
+            assert patch_obj["spec"]["address"] == "10.0.0.21"
 
     @pytest.mark.asyncio
     async def test_hostselector_takes_precedence_over_address(self, sshhost_items):
