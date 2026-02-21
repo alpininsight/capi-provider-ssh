@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Allow controller CRD discovery in RBAC
 - **python:** Harden SSHHost claim and release semantics
 - **python:** Requeue reboot remediation until machine is ready
+- **python:** Prioritize unknown hosts and clear dry-run failures
 
 ### Features
 
@@ -37,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Split #12 into CI and container workflows
 - **crds:** Add SSHHost CRD for Metal3-style host inventory
 - **python:** Add external etcd wiring and reboot remediation
+- **python:** Add dry-run mode, SSHHost health probing, and docs
 
 ### Miscellaneous
 
