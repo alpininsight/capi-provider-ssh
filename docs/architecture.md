@@ -184,6 +184,18 @@ The provider consumes SSH private keys from Kubernetes Secrets referenced by
 | Image building | Not an infra provider concern | Packer, image pipelines |
 | Generic hook framework | YAGNI -- only external etcd exists as a specific feature | Reconsider when a second use case emerges |
 
+## Flux Rollout Sequencing
+
+When management-cluster reconciliation is driven by Flux, rollout order is an
+operations concern:
+
+1. Reconcile provider manifests.
+2. Unsuspend cluster-level Kustomization (`capi-clusters`).
+3. Verify CAPI object health and provider controller health.
+
+Use [docs/flux-rollout.md](flux-rollout.md) for command-level steps and
+rollback.
+
 ## How the Bootstrap Script Flows
 
 ```

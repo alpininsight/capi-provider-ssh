@@ -94,6 +94,15 @@ SSH private key management is standardized for GitOps workflows:
 See [docs/ssh-key-lifecycle.md](docs/ssh-key-lifecycle.md) and
 [python/deploy/examples/ssh-key-lifecycle/](python/deploy/examples/ssh-key-lifecycle/).
 
+## Flux Rollout
+
+If CAPI cluster reconciliation is suspended in Flux, use the explicit rollout
+procedure in [docs/flux-rollout.md](docs/flux-rollout.md) to:
+
+- reconcile provider manifests first
+- unsuspend `capi-clusters`
+- verify health and rollback quickly if needed
+
 ## Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup instructions.

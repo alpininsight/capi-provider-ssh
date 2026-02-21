@@ -13,6 +13,7 @@
 | Cleanup on deletion (kubeadm reset) | Implemented |
 | Pause/unpause support | Implemented |
 | SSH key lifecycle (SOPS/External Secrets + rotation runbook) | Implemented |
+| Flux rollout gate (explicit unsuspend/rollback runbook) | Implemented |
 
 ## Planned: Image Builder Support (v0.2.x)
 
