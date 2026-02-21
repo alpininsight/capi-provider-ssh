@@ -96,6 +96,23 @@ New releases are cut automatically when `develop` is merged into `main`. Check
 the [Releases page](https://github.com/alpininsight/capi-provider-ssh/releases)
 for the latest stable tag.
 
+## Can I swap DNS so staging becomes production and keep old production as backup?
+
+**Yes.** This is a valid blue/green-style cutover pattern:
+
+1. Promote staging to production traffic via DNS.
+2. Keep old production online as rollback target.
+3. Tear down old production only after review acceptance and rollback-window
+   expiry.
+
+Recommended controls:
+- Lower DNS TTL before cutover (for example 60s).
+- Keep old production read-only during rollback window.
+- Validate health/smoke checks immediately after DNS switch.
+- If issues appear, switch DNS back to old production first, then debug.
+
+Use `docs/dns-cutover.md` for the full cutover and teardown gate runbook.
+
 ## Pod logs unreachable via tunnel (kubectl logs returns NotFound)
 
 This is typically a tunnel or API server subresource routing issue, not a
