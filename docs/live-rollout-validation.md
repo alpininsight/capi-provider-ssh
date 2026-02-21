@@ -141,6 +141,11 @@ flux -n flux-system suspend kustomization capi-clusters
 flux -n flux-system suspend kustomization capi-provider-ssh
 ```
 
+## Phase 5: Optional DNS Promotion
+
+If your customer-facing environment is selected by DNS, follow
+[dns-cutover.md](dns-cutover.md) for staged promotion and rollback.
+
 ## kubectl-Only Teardown Equivalents
 
 ```bash

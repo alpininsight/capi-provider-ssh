@@ -106,6 +106,11 @@ procedure in [docs/flux-rollout.md](docs/flux-rollout.md) to:
 For a full pre-release validation including per-phase teardown/remove steps,
 use [docs/live-rollout-validation.md](docs/live-rollout-validation.md).
 
+## DNS Cutover
+
+For promoting staging to production traffic with rollback safety, use
+[docs/dns-cutover.md](docs/dns-cutover.md).
+
 ## Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup instructions.
