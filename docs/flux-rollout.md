@@ -3,6 +3,9 @@
 This runbook makes the CAPI rollout step explicit when Flux-managed
 `capi-clusters` are suspended.
 
+For end-to-end rollout validation with teardown/remove actions per phase, see
+[live-rollout-validation.md](live-rollout-validation.md).
+
 ## Preconditions
 
 Run this only after the provider blockers are closed in `develop`:

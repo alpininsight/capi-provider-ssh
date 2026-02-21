@@ -195,6 +195,8 @@ operations concern:
 
 Use [docs/flux-rollout.md](flux-rollout.md) for command-level steps and
 rollback.
+Use [docs/live-rollout-validation.md](live-rollout-validation.md) for full
+pre-release validation including per-phase teardown.
 
 ## How the Bootstrap Script Flows
 
