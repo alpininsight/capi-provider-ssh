@@ -7,6 +7,7 @@ import kopf
 
 # Import controllers to register their handlers with kopf
 import capi_provider_ssh.controllers.sshcluster  # noqa: F401
+import capi_provider_ssh.controllers.sshhost  # noqa: F401
 import capi_provider_ssh.controllers.sshmachine  # noqa: F401
 
 logger = logging.getLogger(__name__)

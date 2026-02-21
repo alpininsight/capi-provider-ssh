@@ -66,6 +66,13 @@ spec:
                 inUse:
                   type: boolean
                   description: True when the host is claimed by an SSHMachine.
+                lastProbeTime:
+                  type: string
+                  format: date-time
+                  description: Timestamp of the last health probe attempt.
+                lastProbeSuccess:
+                  type: boolean
+                  description: Whether the last health probe succeeded.
                 conditions:
                   type: array
                   items:
@@ -86,6 +93,9 @@ spec:
         - name: Address
           type: string
           jsonPath: .spec.address
+        - name: Ready
+          type: boolean
+          jsonPath: .status.ready
         - name: InUse
           type: boolean
           jsonPath: .status.inUse
