@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Requeue reboot remediation until machine is ready
 - **python:** Prioritize unknown hosts and clear dry-run failures
 - **flux:** Add explicit Flux rollout unsuspend step 
+- **docs:** Add provider-first ordering to kubectl fallback in flux runbook
 
 ### Documentation
 
