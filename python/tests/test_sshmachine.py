@@ -216,6 +216,145 @@ class TestSSHMachineReconcile:
             assert patch_obj["status"]["failureReason"] == "BootstrapFailed"
 
 
+class TestSSHMachineDryRun:
+    @pytest.mark.asyncio
+    async def test_dryrun_validates_without_bootstrap_execution(self, sshmachine_meta_with_owner):
+        """Dry-run should connect via SSH but not upload or execute the bootstrap script."""
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+            "dryRun": True,
+        }
+        mock_conn = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value="#!/bin/bash\nkubeadm join ...",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=spec,
+                status={},
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+
+        # Should NOT have uploaded or executed anything
+        mock_conn.upload.assert_not_called()
+        mock_conn.execute.assert_not_called()
+        # Should NOT set providerID or provisioned
+        assert "providerID" not in patch_obj.get("spec", {})
+        assert "initialization" not in patch_obj.get("status", {})
+
+    @pytest.mark.asyncio
+    async def test_dryrun_sets_condition(self, sshmachine_meta_with_owner):
+        """Dry-run should set a DryRunValidated condition."""
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+            "dryRun": True,
+        }
+        mock_conn = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value="#!/bin/bash\nkubeadm join ...",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=spec,
+                status={},
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+
+        conditions = patch_obj["status"]["conditions"]
+        assert len(conditions) == 1
+        assert conditions[0]["type"] == "DryRunValidated"
+        assert conditions[0]["reason"] == "PreflightPassed"
+        assert "SSH to 100.64.0.10" in conditions[0]["message"]
+        assert patch_obj["status"]["failureReason"] is None
+        assert patch_obj["status"]["failureMessage"] is None
+
+    @pytest.mark.asyncio
+    async def test_dryrun_fails_on_ssh_unreachable(self, sshmachine_meta_with_owner):
+        """Dry-run should propagate SSH connection failures."""
+        spec = {
+            "address": "100.64.0.10",
+            "port": 22,
+            "user": "root",
+            "sshKeyRef": {"name": "ssh-key-secret", "key": "value"},
+            "dryRun": True,
+        }
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value="#!/bin/bash\nkubeadm join ...",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                side_effect=ConnectionRefusedError("Connection refused"),
+            ),
+        ):
+            patch_obj = kopf.Patch({})
+            with pytest.raises(kopf.TemporaryError, match="Dry-run SSH failed"):
+                await sshmachine_reconcile(
+                    spec=spec,
+                    status={},
+                    name="m1",
+                    namespace="default",
+                    meta=sshmachine_meta_with_owner,
+                    patch=patch_obj,
+                )
+
+        assert patch_obj["status"]["failureReason"] == "DryRunSSHFailed"
+
+
 class TestSSHMachineDelete:
     @pytest.mark.asyncio
     async def test_delete_no_address_skips(self):
@@ -336,6 +475,53 @@ class TestChooseHost:
             assert patch_obj["spec"]["sshKeyRef"]["name"] == "hetzner-ssh-key"
             # SSHHost should have been patched with consumerRef
             mock_api.patch_namespaced_custom_object.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_unchecked_host_preferred_over_failed_host(self, sshmachine_spec_with_hostselector):
+        """Unknown health state should be preferred over explicitly failed hosts."""
+        hosts = {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "a-failed",
+                        "resourceVersion": "20",
+                        "labels": {"role": "control-plane", "cluster": "hetzner-staging"},
+                    },
+                    "spec": {
+                        "address": "10.0.0.20",
+                        "sshKeyRef": {"name": "hetzner-ssh-key", "key": "value"},
+                        "consumerRef": {},
+                    },
+                    "status": {"ready": False},
+                },
+                {
+                    "metadata": {
+                        "name": "z-unknown",
+                        "resourceVersion": "21",
+                        "labels": {"role": "control-plane", "cluster": "hetzner-staging"},
+                    },
+                    "spec": {
+                        "address": "10.0.0.21",
+                        "sshKeyRef": {"name": "hetzner-ssh-key", "key": "value"},
+                        "consumerRef": {},
+                    },
+                },
+            ],
+        }
+        mock_api = MagicMock()
+        mock_api.list_namespaced_custom_object.return_value = hosts
+        mock_api.get_namespaced_custom_object.return_value = {"metadata": {"name": "existing"}}
+        mock_api.patch_namespaced_custom_object.return_value = None
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            patch_obj = kopf.Patch({})
+            result = await _choose_host(sshmachine_spec_with_hostselector, "m1", "default", patch_obj)
+            assert result is True
+            assert patch_obj["spec"]["hostRef"] == "default/z-unknown"
+            assert patch_obj["spec"]["address"] == "10.0.0.21"
 
     @pytest.mark.asyncio
     async def test_hostselector_takes_precedence_over_address(self, sshhost_items):

@@ -52,6 +52,16 @@ def _not_ready_condition(reason: str, message: str) -> dict:
     }
 
 
+def _info_condition(condition_type: str, reason: str, message: str) -> dict:
+    return {
+        "type": condition_type,
+        "status": "True",
+        "lastTransitionTime": _now_iso(),
+        "reason": reason,
+        "message": message,
+    }
+
+
 def _has_machine_owner(owner_references: list[dict] | None) -> bool:
     """Check if the resource has a CAPI Machine owner reference."""
     if not owner_references:
@@ -472,8 +482,19 @@ async def _choose_host(spec: dict, name: str, namespace: str, patch) -> bool:
     )
     machine_consumer_ref = _machine_consumer_ref(name, namespace)
 
+    # Sort hosts: ready first, unknown next, explicitly failed last.
+    def _host_sort_key(h):
+        ready = h.get("status", {}).get("ready")
+        if ready is True:
+            readiness_rank = 0
+        elif ready is False:
+            readiness_rank = 2
+        else:
+            readiness_rank = 1
+        return (readiness_rank, h.get("metadata", {}).get("name", ""))
+
     # Filter by matchLabels and find unclaimed hosts
-    for host in sorted(hosts.get("items", []), key=lambda h: h.get("metadata", {}).get("name", "")):
+    for host in sorted(hosts.get("items", []), key=_host_sort_key):
         host_meta = host.get("metadata", {})
         host_name = host_meta.get("name")
         if not host_name:
@@ -726,6 +747,31 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
             _not_ready_condition("SSHKeyReadError", f"Failed to read SSH key secret: {e}"),
         ]
         raise kopf.TemporaryError(f"SSH key read failed: {e}", delay=30) from e
+
+    # Dry-run mode: validate prerequisites without executing the bootstrap script.
+    if spec.get("dryRun"):
+        try:
+            async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
+                pass  # Connection test only
+        except Exception as e:
+            patch.status["failureReason"] = "DryRunSSHFailed"
+            patch.status["failureMessage"] = f"Dry-run SSH connectivity check failed: {e}"
+            patch.status["conditions"] = [
+                _not_ready_condition("DryRunSSHFailed", f"SSH connectivity check failed: {e}"),
+            ]
+            raise kopf.TemporaryError(f"Dry-run SSH failed: {e}", delay=30) from e
+
+        patch.status["conditions"] = [
+            _info_condition(
+                "DryRunValidated",
+                "PreflightPassed",
+                f"Dry-run passed: SSH to {address}, bootstrap data ready",
+            ),
+        ]
+        patch.status["failureReason"] = None
+        patch.status["failureMessage"] = None
+        logger.info("SSHMachine %s/%s dry-run passed", namespace, name)
+        return
 
     # SSH bootstrap
     try:

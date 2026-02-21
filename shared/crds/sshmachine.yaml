@@ -117,6 +117,12 @@ spec:
                         keyFile:
                           type: string
                           default: /etc/kubernetes/pki/etcd-external/client.key
+                dryRun:
+                  type: boolean
+                  description: >-
+                    When true, validates all prerequisites (SSH connectivity,
+                    bootstrap data, secrets) but does not execute the bootstrap
+                    script.
                 remediation:
                   type: object
                   properties:

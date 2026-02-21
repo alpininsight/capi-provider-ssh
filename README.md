@@ -13,20 +13,20 @@ Two implementations sharing the same CRDs and contract:
 
 Manage Kubernetes lifecycle on pre-provisioned servers reachable via SSH. No cloud API, no BMC/IPMI, no vendor lock-in.
 
-**Use case:** Dedicated servers (Hetzner, Strato, OVH, ...) connected via Tailscale/Headscale mesh, with OS already installed via Ansible.
+**Use case:** Dedicated servers, colocated hardware, or edge nodes reachable via SSH — with OS already installed (rescue mode, cloud-init, PXE, or manual).
 
 ## Architecture
 
 ```
-Management Cluster (Lima VMs, arm64)
+Management Cluster
 ├── CAPI Core Controller
 ├── kubeadm Bootstrap Provider
 ├── kubeadm Control Plane Provider
 └── capi-provider-ssh Controller  ← this project
         │
-        │ SSH (via Tailscale IPs)
+        │ SSH (direct, VPN, or mesh)
         ▼
-Target Hosts (Hetzner/Strato, amd64)
+Target Hosts (any SSH-reachable server)
 ├── kubeadm init/join (executed by provider)
 └── K8s node joins workload cluster
 ```
@@ -47,6 +47,41 @@ Both implementations fulfill the same [CAPI provider contract](https://cluster-a
 - `spec.providerID` identifies the node
 - Finalizers handle cleanup (kubeadm reset)
 - Pause/unpause behavior supported
+
+## Bootstrap Configuration
+
+Host preparation (installing containerd, kubeadm, kubelet) is handled by the
+**kubeadm bootstrap provider** via `preKubeadmCommands` — not by this
+infrastructure provider. No external tools (Ansible, Puppet, etc.) are needed.
+
+```yaml
+# KubeadmControlPlane or KubeadmConfigTemplate
+spec:
+  kubeadmConfigSpec:
+    preKubeadmCommands:
+      # System prerequisites
+      - swapoff -a && sed -i '/swap/d' /etc/fstab
+      - modprobe overlay && modprobe br_netfilter
+
+      # Container runtime
+      - apt-get update && apt-get install -y containerd
+      - systemctl enable --now containerd
+
+      # Kubernetes packages
+      - |
+        curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key \
+          | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
+          https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /" \
+          > /etc/apt/sources.list.d/kubernetes.list
+        apt-get update
+        apt-get install -y kubelet kubeadm kubectl
+        apt-mark hold kubelet kubeadm kubectl
+        systemctl enable kubelet
+```
+
+See [docs/architecture.md](docs/architecture.md) for the full rationale and
+production-ready examples.
 
 ## Development
 
