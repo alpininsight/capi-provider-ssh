@@ -83,6 +83,17 @@ spec:
 See [docs/architecture.md](docs/architecture.md) for the full rationale and
 production-ready examples.
 
+## SSH Key Lifecycle
+
+SSH private key management is standardized for GitOps workflows:
+
+- SOPS-encrypted Secret manifests
+- External Secrets syncing from a central secret manager
+- Versioned key rotation runbook with rollback steps
+
+See [docs/ssh-key-lifecycle.md](docs/ssh-key-lifecycle.md) and
+[python/deploy/examples/ssh-key-lifecycle/](python/deploy/examples/ssh-key-lifecycle/).
+
 ## Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup instructions.
