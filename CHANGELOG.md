@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add DCO and update README with contributing guidelines
 - Remove AI references and update .gitignore
 - **repo:** Add pre-commit config and conventional commit hook
+- **gitignore:** Ignore coverage artifact
 
 ### Styling
 
