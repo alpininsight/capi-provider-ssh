@@ -1,0 +1,115 @@
+# Frequently Asked Questions
+
+## RBAC: Does the example RBAC include CRD permissions for Kopf?
+
+**Yes.** The shipped `python/deploy/rbac.yaml` includes:
+
+```yaml
+# CRD discovery for dynamic watch setup and contract checks
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+```
+
+Kopf needs `apiextensions.k8s.io` get/list/watch to discover CRDs and set up
+watches. If your ServiceAccount is missing these permissions, verify you are
+using the reference RBAC from `python/deploy/rbac.yaml` and not a customized
+version that dropped this rule.
+
+**Symptoms when missing:** Kopf logs 403 Forbidden errors during CRD discovery
+and may fail to reconcile resources. The controller does not add custom logging
+for this — Kopf emits the warnings internally.
+
+## Does the controller run kubeadm reset on Machine deletion?
+
+**Yes.** The SSHMachine delete handler
+(`python/capi_provider_ssh/controllers/sshmachine.py`) performs two actions:
+
+1. Releases the claimed SSHHost back to the pool (clears `consumerRef`)
+2. SSHes into the host and runs:
+   ```bash
+   kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet
+   ```
+
+Cleanup failures (SSH unreachable, command fails, missing SSH key) are logged
+as warnings but **never block finalizer removal** — the Machine resource is
+always deletable.
+
+If you are not seeing cleanup happen, check which image tag you are running.
+The cleanup logic landed in develop after v0.1.0. Pin to the latest release
+tag rather than the floating `develop` tag.
+
+## Is there a configurable cleanup hook (postDeleteCommands)?
+
+**Not yet.** The cleanup command is currently hardcoded. A configurable
+`spec.cleanupCommands` field is a good enhancement for cases where additional
+post-deletion cleanup is needed (CNI-specific teardown, custom iptables flush,
+application state removal). This is tracked as a wishlist item.
+
+As a workaround, you can add cleanup steps to `preKubeadmCommands` so that
+stale state is cleared before re-provisioning:
+
+```yaml
+preKubeadmCommands:
+  - kubeadm reset -f || true
+  - rm -rf /etc/cni/net.d /var/lib/cni
+  - iptables -F && iptables -t nat -F && iptables -t mangle -F
+```
+
+## Is SSHHost health probing functional?
+
+**Yes.** The SSHHost controller runs a timer-based probe on each SSHHost:
+
+- **Interval:** 300 seconds (configurable via `SSHHOST_PROBE_INTERVAL` env var)
+- **Timeout:** 10 seconds per probe (configurable via `SSHHOST_PROBE_TIMEOUT`)
+- **Initial delay:** 10 seconds after controller startup
+
+Each probe tests SSH connectivity (connect and disconnect) and updates:
+
+| Status field | Description |
+|-------------|-------------|
+| `status.ready` | `true` if last probe succeeded |
+| `status.lastProbeTime` | ISO 8601 timestamp of last probe |
+| `status.lastProbeSuccess` | `true`/`false` result of last probe |
+| `status.conditions[SSHReachable]` | Condition with reason `ProbeSucceeded` or `ProbeFailed` |
+
+The SSHMachine controller's `_choose_host()` logic uses probe results to
+prefer healthy hosts when claiming from the pool.
+
+**To verify probing is working:**
+
+```bash
+kubectl get sshhosts -o custom-columns=\
+NAME:.metadata.name,\
+READY:.status.ready,\
+LAST_PROBE:.status.lastProbeTime,\
+IN_USE:.status.inUse
+```
+
+## Should I use the floating develop tag in staging?
+
+**No.** Pin to a release tag (e.g., `v0.2.0`) for staging and production. The
+`develop` tag is a floating tag that points to the latest commit on the develop
+branch — it may include incomplete features or breaking changes.
+
+New releases are cut automatically when `develop` is merged into `main`. Check
+the [Releases page](https://github.com/alpininsight/capi-provider-ssh/releases)
+for the latest stable tag.
+
+## Pod logs unreachable via tunnel (kubectl logs returns NotFound)
+
+This is typically a tunnel or API server subresource routing issue, not a
+provider problem. `kubectl logs` requires the API server to proxy a
+subresource request to the kubelet on the target node.
+
+**Troubleshooting steps:**
+
+1. Verify the pod exists: `kubectl get pod <name> -n <namespace>`
+2. Try `kubectl describe pod` (uses the API server directly, no subresource)
+3. Check if `kubectl exec` also fails (same subresource mechanism)
+4. If both fail, the tunnel likely does not support subresource proxying —
+   access the node directly or check your tunnel configuration
+
+The controller itself logs to stdout. If `kubectl logs` is broken through
+your tunnel, access the controller pod's logs via the node directly or
+through your cluster's log aggregation.
