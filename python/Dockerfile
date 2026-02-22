@@ -20,4 +20,11 @@ RUN groupadd --gid 65532 nonroot && \
     useradd --uid 65532 --gid 65532 --no-create-home nonroot
 USER 65532:65532
 
+# OCI labels (static fallback for standalone builds; CI overrides dynamic labels)
+LABEL org.opencontainers.image.vendor="Alpin Insight Solutions" \
+      org.opencontainers.image.licenses="MPL-2.0" \
+      org.opencontainers.image.url="https://github.com/alpininsight/capi-provider-ssh" \
+      org.opencontainers.image.source="https://github.com/alpininsight/capi-provider-ssh" \
+      org.opencontainers.image.description="Cluster API infrastructure provider for SSH-reachable hosts"
+
 ENTRYPOINT ["kopf", "run", "--standalone", "--liveness=http://0.0.0.0:8080/healthz", "capi_provider_ssh/main.py"]
