@@ -14,7 +14,9 @@
 Kopf needs `apiextensions.k8s.io` get/list/watch to discover CRDs and set up
 watches. If your ServiceAccount is missing these permissions, verify you are
 using the reference RBAC from `python/deploy/rbac.yaml` and not a customized
-version that dropped this rule.
+version that dropped this rule. See
+[docs/rbac-requirements.md](rbac-requirements.md) for the full permission
+table.
 
 **Symptoms when missing:** Kopf logs 403 Forbidden errors during CRD discovery
 and may fail to reconcile resources. The controller does not add custom logging
