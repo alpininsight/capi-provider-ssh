@@ -3,9 +3,6 @@ name: Container Build (Python)
 on:
   push:
     branches: [develop, main]
-    tags: ["v*.*.*"]
-  release:
-    types: [published]
   pull_request:
     branches: [develop]
   workflow_dispatch:
@@ -29,6 +26,34 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up GitVersion
+        uses: gittools/actions/gitversion/setup@v3.1.2
+        with:
+          versionSpec: '5.x'
+          preferLatestVersion: true
+
+      - name: Calculate version
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v3.1.2
+        with:
+          useConfigFile: true
+          configFilePath: GitVersion.yml
+          overrideConfig: |
+            update-build-number=false
+
+      - name: Determine version tag
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "tag=v${{ steps.gitversion.outputs.MajorMinorPatch }}" >> "${GITHUB_OUTPUT}"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "tag=${{ steps.gitversion.outputs.SemVer }}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "tag=" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
@@ -51,11 +76,18 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=sha,prefix=sha-,format=short
-            type=ref,event=branch
             type=ref,event=pr
-            type=ref,event=tag
-            type=raw,value=${{ github.event.release.tag_name }},enable=${{ github.event_name == 'release' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=${{ steps.version.outputs.tag }},enable=${{ steps.version.outputs.tag != '' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.vendor=Alpin Insight Solutions
+            org.opencontainers.image.licenses=MPL-2.0
+            org.opencontainers.image.url=https://github.com/alpininsight/capi-provider-ssh
+            org.opencontainers.image.source=https://github.com/alpininsight/capi-provider-ssh
+            org.opencontainers.image.documentation=https://github.com/alpininsight/capi-provider-ssh/tree/main/docs
+            org.opencontainers.image.description=Cluster API infrastructure provider for SSH-reachable hosts
+            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
 
       - name: Build and push image
         id: build
@@ -72,7 +104,11 @@ jobs:
 
       - name: Build summary
         run: |
+          echo "### Container Build Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "Image: ${{ env.IMAGE_NAME }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version: ${{ steps.version.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Tags:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "Digest: ${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
