@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **docs:** Add provider-first ordering to kubectl fallback in flux runbook
 - **ci:** Self-sufficient container tagging with GitVersion and OCI labels
 - **ci:** Guard semver tag on main against no-bump commits
+- **ci:** Prevent release image loss from concurrency cancellation
 
 ### Documentation
 
