@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **flux:** Make canary teardown GitOps-safe
 - **operations:** Add DNS cutover runbook
 - **faq:** Add staging-to-production DNS swap guidance
+- Add RBAC requirements and external etcd contract documentation
+- **external-etcd:** Fix missing ClusterConfiguration behavior description
 
 ### Features
 
