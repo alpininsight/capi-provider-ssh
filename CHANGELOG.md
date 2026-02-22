@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **crds:** Add SSHHost CRD for Metal3-style host inventory
 - **python:** Add external etcd wiring and reboot remediation
 - **python:** Add dry-run mode, SSHHost health probing, and docs
+- **docs:** Add CI, release, and license badges to README
 
 ### Miscellaneous
 
