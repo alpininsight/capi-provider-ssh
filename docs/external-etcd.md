@@ -73,8 +73,10 @@ This patching happens in-memory before the bootstrap script is uploaded. The
 original bootstrap Secret is not modified.
 
 If the bootstrap data contains no `ClusterConfiguration` (e.g., a worker
-node joining via `JoinConfiguration`), the controller logs a warning and
-skips etcd injection.
+node joining via `JoinConfiguration`), the controller raises a
+`PermanentError` and fails reconciliation. Only configure `externalEtcd`
+on control-plane SSHMachines whose bootstrap data includes a
+`ClusterConfiguration` document.
 
 ## Example
 
