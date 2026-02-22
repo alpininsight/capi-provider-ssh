@@ -1,5 +1,10 @@
 # capi-provider-ssh
 
+[![CI](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/ci-python.yml/badge.svg)](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/ci-python.yml)
+[![Container](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/container-build-python.yml/badge.svg)](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/container-build-python.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/alpininsight/capi-provider-ssh)](https://github.com/alpininsight/capi-provider-ssh/releases/latest)
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
+
 A minimal [Cluster API](https://cluster-api.sigs.k8s.io/) infrastructure provider for SSH-reachable hosts.
 
 Two implementations sharing the same CRDs and contract:
