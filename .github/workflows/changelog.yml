@@ -1,7 +1,6 @@
 ---
 # =============================================================================
 # Changelog Workflow - Auto-generate CHANGELOG.md on develop
-# Triggers on push to develop branch
 # =============================================================================
 
 name: Changelog
@@ -12,24 +11,27 @@ on:
       - develop
     paths-ignore:
       - 'CHANGELOG.md'
-
   workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: changelog-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   changelog:
-    name: Generate Changelog
+    name: Generate CHANGELOG.md
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.CHANGELOG_BOT_TOKEN != '' && secrets.CHANGELOG_BOT_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Install git-cliff
         uses: taiki-e/install-action@v2
@@ -37,60 +39,89 @@ jobs:
           tool: git-cliff@2.7.0
 
       - name: Generate changelog
-        id: changelog
+        id: generate
         run: |
           git-cliff --output CHANGELOG.md
 
           if [ -n "$(git status --porcelain CHANGELOG.md)" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Changelog updated"
+            echo "CHANGELOG.md updated."
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No changelog changes detected"
+            echo "No changelog updates."
           fi
 
-      - name: Create and merge Pull Request
-        if: steps.changelog.outputs.changed == 'true'
+      - name: Ensure changelog bot token is configured
+        if: steps.generate.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BOT_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN }}
         run: |
+          if [ -z "${BOT_TOKEN:-}" ]; then
+            echo "::error::Missing CHANGELOG_BOT_TOKEN secret. Configure it in repo Settings > Secrets."
+            exit 1
+          fi
+
+      - name: Create or update changelog PR
+        id: pr
+        if: steps.generate.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           BRANCH="chore/changelog-update"
-          git checkout -b "$BRANCH"
+          git checkout -B "$BRANCH"
           git add CHANGELOG.md
-          git commit -m "chore(changelog): update CHANGELOG.md [skip ci]"
+          git commit -m "chore(changelog): update CHANGELOG.md"
           git push --force origin "$BRANCH"
 
-          PR_CREATE_STATUS=0
-          PR_CREATE_OUTPUT="$(
+          PR_NUM="$(gh pr list --head "$BRANCH" --base develop --json number --jq '.[0].number')"
+          if [ -n "$PR_NUM" ] && [ "$PR_NUM" != "null" ]; then
+            echo "Updating existing PR #$PR_NUM"
+            gh pr edit "$PR_NUM" \
+              --title "chore(changelog): update CHANGELOG.md" \
+              --body "Auto-generated changelog update from git-cliff."
+          else
+            echo "Creating new PR from $BRANCH to develop"
             gh pr create \
               --base develop \
               --head "$BRANCH" \
               --title "chore(changelog): update CHANGELOG.md" \
-              --body "Auto-generated changelog update from git-cliff." \
-              --label documentation \
-              2>&1
-          )" || PR_CREATE_STATUS=$?
-
-          if [ "$PR_CREATE_STATUS" -ne 0 ]; then
-            if printf '%s' "$PR_CREATE_OUTPUT" | grep -qi "already exists"; then
-              echo "Changelog PR already exists for branch $BRANCH, continuing."
-            else
-              echo "::error::Failed to create changelog PR."
-              echo "$PR_CREATE_OUTPUT"
-              exit 1
-            fi
-          else
-            echo "$PR_CREATE_OUTPUT"
+              --body "Auto-generated changelog update from git-cliff."
           fi
 
-          PR_NUM="$(gh pr list --head "$BRANCH" --json number --jq '.[0].number')"
+          PR_NUM="$(gh pr list --state open --head "$BRANCH" --base develop --json number --jq '.[0].number')"
+          if [ -z "$PR_NUM" ] || [ "$PR_NUM" = "null" ]; then
+            echo "::error::Could not resolve changelog PR number."
+            exit 1
+          fi
+          echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
 
-          if [ -n "$PR_NUM" ] && [ "$PR_NUM" != "null" ]; then
-            echo "Merging PR #$PR_NUM"
+      - name: Merge changelog PR
+        if: steps.generate.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR_NUM="${{ steps.pr.outputs.pr_number }}"
+          STATE="$(gh pr view "$PR_NUM" --json state --jq '.state')"
+          if [ "$STATE" != "OPEN" ]; then
+            echo "PR #$PR_NUM is $STATE; skipping merge."
+            exit 0
+          fi
+          # Use auto-merge: GitHub waits for required checks then merges.
+          # Falls back to direct merge for repos without required checks
+          # or where auto-merge is not enabled in repo settings.
+          if gh pr merge "$PR_NUM" --auto --squash --delete-branch 2>/dev/null; then
+            echo "Auto-merge enabled on PR #$PR_NUM. GitHub will merge when checks pass."
+          else
+            echo "Auto-merge unavailable, attempting direct merge..."
             gh pr merge "$PR_NUM" --squash --delete-branch
-          else
-            echo "::warning::Could not find PR to merge"
           fi
+
+      - name: Summary
+        run: |
+          echo "### Changelog workflow result" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Changed: ${{ steps.generate.outputs.changed }}" >> "$GITHUB_STEP_SUMMARY"
