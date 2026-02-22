@@ -48,7 +48,14 @@ jobs:
         id: version
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "tag=v${{ steps.gitversion.outputs.MajorMinorPatch }}" >> "${GITHUB_OUTPUT}"
+            TAG="v${{ steps.gitversion.outputs.MajorMinorPatch }}"
+            # Guard: skip semver tag if it already exists (no-bump commits)
+            if git rev-parse "${TAG}" >/dev/null 2>&1; then
+              echo "::warning::Tag ${TAG} already exists — skipping semver tag to preserve immutability"
+              echo "tag=" >> "${GITHUB_OUTPUT}"
+            else
+              echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+            fi
           elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
             echo "tag=${{ steps.gitversion.outputs.SemVer }}" >> "${GITHUB_OUTPUT}"
           else
