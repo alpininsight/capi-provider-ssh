@@ -99,6 +99,20 @@ SSH private key management is standardized for GitOps workflows:
 See [docs/ssh-key-lifecycle.md](docs/ssh-key-lifecycle.md) and
 [python/deploy/examples/ssh-key-lifecycle/](python/deploy/examples/ssh-key-lifecycle/).
 
+## RBAC Requirements
+
+See [docs/rbac-requirements.md](docs/rbac-requirements.md) for the full set of
+RBAC permissions the controller requires. The reference implementation is in
+[python/deploy/rbac.yaml](python/deploy/rbac.yaml).
+
+## External Etcd
+
+The SSHMachine resource supports optional external etcd wiring -- distributing
+certificates and patching kubeadm configuration for external etcd clusters.
+
+See [docs/external-etcd.md](docs/external-etcd.md) for the Secret format
+contract and configuration reference.
+
 ## Flux Rollout
 
 If CAPI cluster reconciliation is suspended in Flux, use the explicit rollout
