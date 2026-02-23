@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+- **sshmachine:** Support cloud-init bootstrap and timer reconcile
+
+## [0.3.1] - 2026-02-23
+
+### Release
+
+- Python CAPI provider implementation and operational docs 
+- CAPI contract compliance and CI fixes 
+- V0.4.0 — CAPI contract compliance, CI guards, and docs 
+
+## [0.2.0] - 2026-02-21
+
+### Bug Fixes
+
 - **python:** Enable kopf liveness endpoint for probes
 - **python:** Harden runtime startup and add SSHCluster unit tests
 - **python:** Keep liveness enabled in hardened entrypoint
@@ -35,10 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Prevent release image loss from concurrency cancellation
 - **ci:** Inherit version bumps from develop on main merge
 - **ci:** Sync changelog workflow from canonical template
-- **capi:** Add status.ready, RBAC aggregation, and CRD contract labels
-- **ci:** Add workflow_dispatch and branch guard for releases
-- **ci:** Replace branch guard with canonical org template
-- **ci:** Expand branch guard to all conventional commit prefixes
+- **capi:** Add status.ready, RBAC aggregation, and CRD contract labels 
+- **ci:** Add workflow_dispatch and branch guard for releases 
+- **ci:** Replace branch guard with canonical org template 
+- **ci:** Expand branch guard to all conventional commit prefixes 
 - **ssh:** Use asyncio.wait_for for asyncssh operations
 
 ### Documentation
@@ -53,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add RBAC requirements and external etcd contract documentation
 - **external-etcd:** Fix missing ClusterConfiguration behavior description
 - Fix minor documentation inaccuracies 
-- **external-etcd:** Fix apiVersion to match served v1beta1 contract
+- **external-etcd:** Fix apiVersion to match served v1beta1 contract 
 
 ### Features
 
@@ -89,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Release
 
 - Python CAPI provider implementation and operational docs  
+- Merge develop into main 
 
 ## [0.1.0] - 2026-02-20
 
