@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Prevent release image loss from concurrency cancellation
 - **ci:** Inherit version bumps from develop on main merge
 - **ci:** Sync changelog workflow from canonical template
-- **capi:** Add status.ready, RBAC aggregation, and CRD contract labels 
+- **capi:** Add status.ready, RBAC aggregation, and CRD contract labels
 
 ### Documentation
 
