@@ -48,6 +48,8 @@ jobs:
         run: uv run ruff format --check capi_provider_ssh tests
 
       - name: Pytest with coverage
+        env:
+          TEARDOWN_ARTIFACT_DIR: ${{ github.workspace }}/python/test-artifacts/teardown
         run: uv run pytest -q --cov=capi_provider_ssh --cov-report=term-missing --cov-report=xml
 
       - name: Upload Python coverage artifact
@@ -56,6 +58,14 @@ jobs:
         with:
           name: python-coverage
           path: python/coverage.xml
+          if-no-files-found: ignore
+
+      - name: Upload teardown debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teardown-debug-artifacts
+          path: python/test-artifacts/teardown
           if-no-files-found: ignore
 
   manifests:
