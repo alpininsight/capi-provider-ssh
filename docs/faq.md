@@ -98,6 +98,23 @@ New releases are cut automatically when `develop` is merged into `main`. Check
 the [Releases page](https://github.com/alpininsight/capi-provider-ssh/releases)
 for the latest stable tag.
 
+## How does integration test teardown avoid leaked test namespaces?
+
+Integration tests now use a deterministic teardown contract in
+`python/tests/integration/cleanup.py`:
+
+1. Teardown is allowed only for namespaces with prefix `test-capi-ssh-` and
+   label `capi-provider-ssh-test=true`.
+2. Resources are deleted in explicit order (`SSHMachine`/`SSHCluster` first,
+   then CAPI/Bootstrap test objects, then namespace).
+3. Teardown asserts there is no residue (`Machine`, `SSHMachine`,
+   `KubeadmConfig`, test Secrets, test namespaces).
+4. On teardown failure, a debug bundle is written (when
+   `TEARDOWN_ARTIFACT_DIR` is set) and uploaded by CI.
+
+This is designed to prevent recurring `test-cluster not found` noise from
+orphaned test resources.
+
 ## Can I swap DNS so staging becomes production and keep old production as backup?
 
 **Yes.** This is a valid blue/green-style cutover pattern:
