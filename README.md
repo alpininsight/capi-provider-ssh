@@ -11,7 +11,7 @@ Two implementations sharing the same CRDs and contract:
 
 | Implementation | Directory | Language | Framework |
 |---------------|-----------|----------|-----------|
-| Python | `python/` | Python 3.13 | kopf + asyncssh |
+| Python | `python/` | Python 3.13+ | kopf + asyncssh |
 | Rust | `rust/` | Rust (stable) | kube-rs + russh |
 
 ## Purpose
@@ -129,6 +129,11 @@ use [docs/live-rollout-validation.md](docs/live-rollout-validation.md).
 
 For promoting staging to production traffic with rollback safety, use
 [docs/dns-cutover.md](docs/dns-cutover.md).
+
+## FAQ
+
+See [docs/faq.md](docs/faq.md) for answers to common questions about RBAC/Kopf
+permissions, cleanup behavior, health probing details, and troubleshooting.
 
 ## Development
 
