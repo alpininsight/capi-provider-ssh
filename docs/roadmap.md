@@ -1,6 +1,6 @@
 # Roadmap
 
-## Current Capabilities (v0.1.x)
+## Current Capabilities (v0.3.x)
 
 | Feature | Status |
 |---------|--------|
