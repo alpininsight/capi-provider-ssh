@@ -35,7 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Prevent release image loss from concurrency cancellation
 - **ci:** Inherit version bumps from develop on main merge
 - **ci:** Sync changelog workflow from canonical template
+<<<<<<< HEAD
+- **capi:** Add status.ready, RBAC aggregation, and CRD contract labels 
+- **ci:** Add workflow_dispatch and branch guard for releases 
+- **ci:** Replace branch guard with canonical org template 
+- **ci:** Expand branch guard to all conventional commit prefixes 
+=======
 - **capi:** Add status.ready, RBAC aggregation, and CRD contract labels
+>>>>>>> origin/main
 
 ### Documentation
 
@@ -49,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add RBAC requirements and external etcd contract documentation
 - **external-etcd:** Fix missing ClusterConfiguration behavior description
 - Fix minor documentation inaccuracies 
+- **external-etcd:** Fix apiVersion to match served v1beta1 contract
 
 ### Features
 
@@ -68,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove AI references and update .gitignore
 - **repo:** Add pre-commit config and conventional commit hook
 - **gitignore:** Ignore coverage artifact
+- Merge main back into develop to resolve divergence 
 
 ### Styling
 
@@ -79,6 +88,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **python:** Add unit tests for all controllers and SSH client
 - **python:** Add runtime startup regression guard
 - **python:** Add integration tests for SSHCluster and SSHMachine 
+
+### Release
+
+- Python CAPI provider implementation and operational docs  
 
 ## [0.1.0] - 2026-02-20
 
