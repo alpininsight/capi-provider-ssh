@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Add workflow_dispatch and branch guard for releases 
 - **ci:** Replace branch guard with canonical org template 
 - **ci:** Expand branch guard to all conventional commit prefixes 
+- **ssh:** Use asyncio.wait_for for asyncssh operations
 
 ### Documentation
 
