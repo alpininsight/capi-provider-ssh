@@ -61,6 +61,7 @@ def _reconcile(spec: dict, name: str, namespace: str, meta: dict, patch: kopf.Pa
     if not _has_capi_cluster_owner(owner_refs):
         logger.warning("SSHCluster %s/%s has no CAPI Cluster owner, waiting", namespace, name)
         patch.status["initialization"] = {"provisioned": False}
+        patch.status["ready"] = False
         patch.status["conditions"] = [
             _not_ready_condition("WaitingForClusterOwner", "No CAPI Cluster ownerReference found"),
         ]
@@ -72,12 +73,14 @@ def _reconcile(spec: dict, name: str, namespace: str, meta: dict, patch: kopf.Pa
 
     if not host or not port:
         patch.status["initialization"] = {"provisioned": False}
+        patch.status["ready"] = False
         patch.status["conditions"] = [
             _not_ready_condition("InvalidEndpoint", f"Invalid controlPlaneEndpoint: {host}:{port}"),
         ]
         return
 
     patch.status["initialization"] = {"provisioned": True}
+    patch.status["ready"] = True
     patch.status["conditions"] = [
         _ready_condition(f"Control plane endpoint {host}:{port} registered"),
     ]
