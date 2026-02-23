@@ -99,6 +99,11 @@ kubectl -n <namespace> delete cluster <canary-cluster>
 # Verify cleanup (finalizers + host release)
 kubectl -n <namespace> get machines,sshmachines
 kubectl -n <namespace> get sshhosts -o custom-columns='NAME:.metadata.name,CONSUMER:.spec.consumerRef.name'
+
+# Verify no leaked integration test namespaces/resources remain
+kubectl get ns | rg '^test-capi-ssh-' || true
+kubectl get machines.cluster.x-k8s.io -A | rg 'test-capi-ssh' || true
+kubectl get sshmachines.infrastructure.alpininsight.ai -A | rg 'test-capi-ssh' || true
 ```
 
 Git-first durable teardown (preferred):
@@ -116,6 +121,7 @@ flux -n flux-system reconcile kustomization capi-clusters --with-source
 Expected teardown outcome:
 - Canary `Machine`/`SSHMachine` objects are removed.
 - Claimed `SSHHost` entries have empty `consumerRef`.
+- No `test-capi-ssh-*` residue remains after integration teardown checks.
 
 ## Phase 4: Promote Full Rollout
 

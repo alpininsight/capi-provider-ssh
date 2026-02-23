@@ -9,10 +9,12 @@ from __future__ import annotations
 import base64
 import os
 import uuid
+from pathlib import Path
 
 import kubernetes
 import pytest
 
+from tests.integration.cleanup import TeardownConfig, teardown_test_namespace
 from tests.integration.helpers import API_GROUP, API_VERSION
 
 
@@ -79,7 +81,7 @@ def _require_crds(k8s_client):
 
 
 @pytest.fixture
-def test_namespace(core_api):
+def test_namespace(core_api, custom_api):
     """Create an ephemeral namespace for test isolation, delete on teardown."""
     ns_name = f"test-capi-ssh-{uuid.uuid4().hex[:8]}"
     ns_body = kubernetes.client.V1Namespace(
@@ -90,8 +92,19 @@ def test_namespace(core_api):
     )
     core_api.create_namespace(body=ns_body)
     yield ns_name
-    # Cascading delete removes all resources in the namespace
-    core_api.delete_namespace(name=ns_name, body=kubernetes.client.V1DeleteOptions(propagation_policy="Background"))
+
+    artifact_dir_env = os.environ.get("TEARDOWN_ARTIFACT_DIR")
+    artifact_dir = Path(artifact_dir_env) if artifact_dir_env else None
+    cfg = TeardownConfig(artifact_dir=artifact_dir)
+    try:
+        teardown_test_namespace(
+            core_api=core_api,
+            custom_api=custom_api,
+            namespace=ns_name,
+            config=cfg,
+        )
+    except Exception as exc:
+        raise RuntimeError(f"integration teardown failed for namespace {ns_name}: {exc}") from exc
 
 
 @pytest.fixture
