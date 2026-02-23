@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Guard semver tag on main against no-bump commits
 - **ci:** Prevent release image loss from concurrency cancellation
 - **ci:** Inherit version bumps from develop on main merge
+- **ci:** Sync changelog workflow from canonical template
 
 ### Documentation
 
@@ -44,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **flux:** Make canary teardown GitOps-safe
 - **operations:** Add DNS cutover runbook
 - **faq:** Add staging-to-production DNS swap guidance
+- Add RBAC requirements and external etcd contract documentation
+- **external-etcd:** Fix missing ClusterConfiguration behavior description
+- Fix minor documentation inaccuracies 
 
 ### Features
 
