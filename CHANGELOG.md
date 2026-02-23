@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Sync changelog workflow from canonical template
 - **capi:** Add status.ready, RBAC aggregation, and CRD contract labels 
 - **ci:** Add workflow_dispatch and branch guard for releases 
+- **ci:** Replace branch guard with canonical org template 
 
 ### Documentation
 
