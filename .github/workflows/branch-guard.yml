@@ -1,0 +1,27 @@
+---
+# =============================================================================
+# Branch Guard - Enforce develop-only merges to main
+# Blocks PRs targeting main from any branch other than develop
+# =============================================================================
+
+name: Branch Guard
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-source-branch:
+    name: Verify source branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Block non-develop PRs to main
+        if: github.head_ref != 'develop'
+        run: |
+          echo "::error::PRs to main must come from develop, not '${{ github.head_ref }}'."
+          echo "Merge your branch into develop first, then create a PR from develop to main."
+          exit 1
+
+      - name: Source branch OK
+        if: github.head_ref == 'develop'
+        run: echo "Source branch is develop — OK"
