@@ -56,3 +56,31 @@ subjects:
   - kind: ServiceAccount
     name: capi-provider-ssh-controller
     namespace: capi-provider-ssh-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: capi-provider-ssh-aggregated
+  labels:
+    cluster.x-k8s.io/aggregate-to-manager: "true"
+rules:
+  - apiGroups: ["infrastructure.alpininsight.ai"]
+    resources: ["sshclusters", "sshhosts", "sshmachines", "sshmachinetemplates"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["infrastructure.alpininsight.ai"]
+    resources: ["sshclusters/status", "sshhosts/status", "sshmachines/status"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: capi-provider-ssh-kcp-aggregated
+  labels:
+    kubeadm.controlplane.cluster.x-k8s.io/aggregate-to-manager: "true"
+rules:
+  - apiGroups: ["infrastructure.alpininsight.ai"]
+    resources: ["sshclusters", "sshhosts", "sshmachines", "sshmachinetemplates"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["infrastructure.alpininsight.ai"]
+    resources: ["sshclusters/status", "sshhosts/status", "sshmachines/status"]
+    verbs: ["get", "update", "patch"]
