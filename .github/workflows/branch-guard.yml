@@ -1,27 +1,40 @@
----
-# =============================================================================
-# Branch Guard - Enforce develop-only merges to main
-# Blocks PRs targeting main from any branch other than develop
-# =============================================================================
-
-name: Branch Guard
+name: PR Branch Guard
 
 on:
   pull_request:
-    branches: [main]
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
 
 jobs:
-  check-source-branch:
-    name: Verify source branch
+  validate-source-target:
     runs-on: ubuntu-latest
     steps:
-      - name: Block non-develop PRs to main
-        if: github.head_ref != 'develop'
+      - name: Validate PR branch routing policy
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          echo "::error::PRs to main must come from develop, not '${{ github.head_ref }}'."
-          echo "Merge your branch into develop first, then create a PR from develop to main."
-          exit 1
+          set -euo pipefail
 
-      - name: Source branch OK
-        if: github.head_ref == 'develop'
-        run: echo "Source branch is develop — OK"
+          echo "base=$BASE_REF head=$HEAD_REF"
+
+          if [[ "$BASE_REF" == "main" ]]; then
+            if [[ "$HEAD_REF" != "develop" ]]; then
+              echo "ERROR: PRs into main are only allowed from develop."
+              exit 1
+            fi
+            exit 0
+          fi
+
+          if [[ "$BASE_REF" == "develop" ]]; then
+            if [[ "$HEAD_REF" =~ ^(feature|feat|fix|refactor|chore|docs|hotfix)/.+$ ]]; then
+              exit 0
+            fi
+            echo "ERROR: PRs into develop are only allowed from feature/*, feat/*, fix/*, refactor/*, chore/*, docs/*, hotfix/*."
+            exit 1
+          fi
+
+          echo "ERROR: PR target branch '$BASE_REF' is not allowed by policy."
+          exit 1
