@@ -39,12 +39,14 @@ class TestSSHClusterReconcile:
         patch = kopf.Patch({})
         _reconcile(sshcluster_spec, "test", "default", sshcluster_meta_no_owner, patch)
         assert patch["status"]["initialization"]["provisioned"] is False
+        assert patch["status"]["ready"] is False
         assert patch["status"]["conditions"][0]["reason"] == "WaitingForClusterOwner"
 
     def test_valid_cluster_provisioned(self, sshcluster_spec, sshcluster_meta_with_owner):
         patch = kopf.Patch({})
         _reconcile(sshcluster_spec, "test", "default", sshcluster_meta_with_owner, patch)
         assert patch["status"]["initialization"]["provisioned"] is True
+        assert patch["status"]["ready"] is True
         assert patch["status"]["conditions"][0]["status"] == "True"
         assert patch["status"]["conditions"][0]["reason"] == "Provisioned"
 
@@ -53,6 +55,7 @@ class TestSSHClusterReconcile:
         patch = kopf.Patch({})
         _reconcile(spec, "test", "default", sshcluster_meta_with_owner, patch)
         assert patch["status"]["initialization"]["provisioned"] is False
+        assert patch["status"]["ready"] is False
         assert patch["status"]["conditions"][0]["reason"] == "InvalidEndpoint"
 
     def test_idempotent_reconciliation(self, sshcluster_spec, sshcluster_meta_with_owner):
