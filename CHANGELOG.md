@@ -35,14 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Prevent release image loss from concurrency cancellation
 - **ci:** Inherit version bumps from develop on main merge
 - **ci:** Sync changelog workflow from canonical template
-<<<<<<< HEAD
-- **capi:** Add status.ready, RBAC aggregation, and CRD contract labels 
-- **ci:** Add workflow_dispatch and branch guard for releases 
-- **ci:** Replace branch guard with canonical org template 
-- **ci:** Expand branch guard to all conventional commit prefixes 
-=======
 - **capi:** Add status.ready, RBAC aggregation, and CRD contract labels
->>>>>>> origin/main
+- **ci:** Add workflow_dispatch and branch guard for releases
+- **ci:** Replace branch guard with canonical org template
+- **ci:** Expand branch guard to all conventional commit prefixes
+- **ssh:** Use asyncio.wait_for for asyncssh operations
 
 ### Documentation
 
