@@ -1,8 +1,12 @@
 """Tests for SSH client wrapper."""
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import asyncssh
 import pytest
 
-from capi_provider_ssh.ssh import SSHResult, _redact
+from capi_provider_ssh.ssh import SSHClient, SSHConnection, SSHResult, _redact
 
 
 class TestSSHResult:
@@ -53,3 +57,66 @@ class TestRedact:
         # appear in logs anyway (the SSH client doesn't log keys)
         result = _redact(text)
         assert result is not None  # Just verify it doesn't crash
+
+
+class TestSSHClient:
+    @pytest.mark.asyncio
+    async def test_connect_uses_asyncio_wait_for(self):
+        raw_conn = MagicMock()
+        connect_call = object()
+        imported_key = object()
+        wait_for_mock = AsyncMock(return_value=raw_conn)
+
+        with (
+            patch("capi_provider_ssh.ssh.asyncssh.import_private_key", return_value=imported_key) as import_key,
+            patch("capi_provider_ssh.ssh.asyncssh.connect", return_value=connect_call) as connect,
+            patch("capi_provider_ssh.ssh.asyncio.wait_for", wait_for_mock),
+        ):
+            conn = await SSHClient.connect(
+                address="10.0.0.1",
+                port=2222,
+                user="admin",
+                key="fake-private-key",
+                timeout=9,
+            )
+
+        assert isinstance(conn, SSHConnection)
+        import_key.assert_called_once_with("fake-private-key")
+        connect.assert_called_once_with(
+            host="10.0.0.1",
+            port=2222,
+            username="admin",
+            client_keys=[imported_key],
+            known_hosts=None,
+        )
+        wait_for_mock.assert_awaited_once_with(connect_call, timeout=9)
+
+    @pytest.mark.asyncio
+    async def test_connect_invalid_private_key_raises_value_error(self):
+        with (
+            patch(
+                "capi_provider_ssh.ssh.asyncssh.import_private_key",
+                side_effect=asyncssh.KeyImportError("bad key"),
+            ),
+            pytest.raises(ValueError, match="Failed to parse SSH private key"),
+        ):
+            await SSHClient.connect(address="10.0.0.1", key="bad-key")
+
+
+class TestSSHConnection:
+    @pytest.mark.asyncio
+    async def test_execute_uses_asyncio_wait_for(self):
+        run_call = object()
+        raw_conn = MagicMock()
+        raw_conn.run.return_value = run_call
+        wait_for_mock = AsyncMock(
+            return_value=SimpleNamespace(exit_status=0, stdout="ok", stderr=""),
+        )
+        conn = SSHConnection(raw_conn, "10.0.0.1", 22)
+
+        with patch("capi_provider_ssh.ssh.asyncio.wait_for", wait_for_mock):
+            result = await conn.execute("echo ok", timeout=5)
+
+        raw_conn.run.assert_called_once_with("echo ok", check=False)
+        wait_for_mock.assert_awaited_once_with(run_call, timeout=5)
+        assert result == SSHResult(exit_code=0, stdout="ok", stderr="")

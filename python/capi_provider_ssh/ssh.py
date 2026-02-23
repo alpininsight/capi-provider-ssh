@@ -11,6 +11,7 @@ without breaking the interface.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import logging
 import os
@@ -78,7 +79,7 @@ class SSHConnection:
         logger.info("SSH execute on %s:%d (timeout=%ds)", self._address, self._port, timeout)
         logger.debug("SSH command: %s", _redact(command))
 
-        result = await asyncssh.wait_for(self._conn.run(command, check=False), timeout=timeout)
+        result = await asyncio.wait_for(self._conn.run(command, check=False), timeout=timeout)
 
         ssh_result = SSHResult(
             exit_code=result.exit_status or 0,
@@ -159,7 +160,7 @@ class SSHClient:
         except asyncssh.KeyImportError as e:
             raise ValueError(f"Failed to parse SSH private key: {e}") from e
 
-        conn = await asyncssh.wait_for(
+        conn = await asyncio.wait_for(
             asyncssh.connect(
                 host=address,
                 port=port,
