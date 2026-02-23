@@ -10,6 +10,7 @@ This is the core controller of the provider. It handles:
 import base64
 import datetime
 import logging
+import os
 import posixpath
 import re
 import shlex
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_EXTERNAL_ETCD_CA_FILE = "/etc/kubernetes/pki/etcd-external/ca.crt"
 DEFAULT_EXTERNAL_ETCD_CERT_FILE = "/etc/kubernetes/pki/etcd-external/client.crt"
 DEFAULT_EXTERNAL_ETCD_KEY_FILE = "/etc/kubernetes/pki/etcd-external/client.key"
+SSHMACHINE_RECONCILE_INTERVAL = int(
+    os.environ.get("SSHMACHINE_RECONCILE_INTERVAL", os.environ.get("RECONCILE_INTERVAL", "60")),
+)
 
 
 def _now_iso() -> str:
@@ -237,6 +241,184 @@ def _patch_external_etcd_in_kubeadm_yaml(yaml_text: str, external_etcd: dict) ->
     return rendered, saw_cluster_configuration, True
 
 
+def _detect_bootstrap_format(bootstrap_data: str) -> str:
+    """Detect bootstrap payload format (cloud-config or shell)."""
+    for line in bootstrap_data.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # kubeadm cloud-init commonly carries a leading template marker.
+        if stripped.startswith("## template:"):
+            continue
+        if stripped.startswith("#cloud-config") or stripped.startswith(("write_files:", "runcmd:")):
+            return "cloud-config"
+        if stripped.startswith("#!"):
+            return "shell"
+        return "shell"
+    return "unknown"
+
+
+def _parse_cloud_config(bootstrap_data: str) -> dict:
+    """Parse and validate a cloud-config payload."""
+    try:
+        config = yaml.safe_load(bootstrap_data) or {}
+    except yaml.YAMLError as e:
+        raise kopf.PermanentError(f"bootstrap cloud-config YAML is invalid: {e}") from e
+
+    if not isinstance(config, dict):
+        raise kopf.PermanentError("bootstrap cloud-config must be a mapping")
+
+    write_files = config.get("write_files", [])
+    if write_files is None:
+        write_files = []
+    if not isinstance(write_files, list):
+        raise kopf.PermanentError("bootstrap cloud-config write_files must be a list")
+    for idx, entry in enumerate(write_files):
+        if not isinstance(entry, dict):
+            raise kopf.PermanentError(f"bootstrap cloud-config write_files[{idx}] must be an object")
+        path = entry.get("path")
+        if not isinstance(path, str) or not path:
+            raise kopf.PermanentError(
+                f"bootstrap cloud-config write_files[{idx}].path must be a non-empty string",
+            )
+
+    runcmd = config.get("runcmd", [])
+    if runcmd is None:
+        runcmd = []
+    if not isinstance(runcmd, list):
+        raise kopf.PermanentError("bootstrap cloud-config runcmd must be a list")
+    for idx, command in enumerate(runcmd):
+        if isinstance(command, str):
+            continue
+        if isinstance(command, list):
+            if not all(isinstance(part, (str, int, float, bool)) for part in command):
+                raise kopf.PermanentError(
+                    f"bootstrap cloud-config runcmd[{idx}] list entries must be scalar values",
+                )
+            continue
+        raise kopf.PermanentError(f"bootstrap cloud-config runcmd[{idx}] must be string or list")
+
+    config["write_files"] = write_files
+    config["runcmd"] = runcmd
+    return config
+
+
+def _decode_cloud_write_file_content(entry: dict, index: int) -> str:
+    """Read write_files entry content, decoding supported encodings."""
+    content = entry.get("content", "")
+    if content is None:
+        content = ""
+    if not isinstance(content, str):
+        raise kopf.PermanentError(
+            f"bootstrap cloud-config write_files[{index}].content must be a string when set",
+        )
+
+    encoding = entry.get("encoding")
+    if encoding is None:
+        return content
+    if not isinstance(encoding, str):
+        raise kopf.PermanentError(
+            f"bootstrap cloud-config write_files[{index}].encoding must be a string when set",
+        )
+
+    normalized = encoding.strip().lower()
+    if normalized in {"", "text", "plain"}:
+        return content
+    if normalized in {"b64", "base64"}:
+        try:
+            return base64.b64decode(content).decode("utf-8")
+        except Exception as e:
+            raise kopf.PermanentError(
+                f"bootstrap cloud-config write_files[{index}] has invalid base64 content: {e}",
+            ) from e
+
+    raise kopf.PermanentError(
+        f"bootstrap cloud-config write_files[{index}] encoding '{encoding}' is unsupported",
+    )
+
+
+def _store_cloud_write_file_content(entry: dict, text: str) -> None:
+    """Write file content back to write_files, preserving encoding convention."""
+    encoding = entry.get("encoding")
+    if isinstance(encoding, str) and encoding.strip().lower() in {"b64", "base64"}:
+        entry["content"] = base64.b64encode(text.encode("utf-8")).decode("utf-8")
+        return
+    entry["content"] = text
+
+
+def _format_cloud_file_mode(mode: int | str, index: int) -> str:
+    """Normalize cloud-init file mode value into chmod-compatible text."""
+    if isinstance(mode, int):
+        return format(mode, "o")
+    if isinstance(mode, str):
+        normalized = mode.strip().strip("'\"")
+        if normalized:
+            return normalized
+    raise kopf.PermanentError(
+        f"bootstrap cloud-config write_files[{index}].permissions must be a non-empty string or integer",
+    )
+
+
+def _render_cloud_config_to_shell(bootstrap_data: str) -> str:
+    """Render supported cloud-config primitives into an executable shell script."""
+    config = _parse_cloud_config(bootstrap_data)
+    lines = [
+        "#!/bin/bash",
+        "set -euo pipefail",
+    ]
+
+    write_files = config.get("write_files", [])
+    for idx, entry in enumerate(write_files):
+        path = entry["path"]
+        directory = posixpath.dirname(path) or "/"
+        lines.append(f"install -d -m 0755 {shlex.quote(directory)}")
+
+        marker = f"__CAPI_BOOTSTRAP_FILE_{idx}__"
+        content = _decode_cloud_write_file_content(entry, idx)
+        lines.append(f"cat <<'{marker}' > {shlex.quote(path)}")
+        if content:
+            lines.extend(content.splitlines())
+        lines.append(marker)
+
+        permissions = entry.get("permissions")
+        if permissions is not None:
+            lines.append(f"chmod {shlex.quote(_format_cloud_file_mode(permissions, idx))} {shlex.quote(path)}")
+
+        owner = entry.get("owner")
+        if owner is not None:
+            if not isinstance(owner, str) or not owner:
+                raise kopf.PermanentError(
+                    f"bootstrap cloud-config write_files[{idx}].owner must be a non-empty string",
+                )
+            lines.append(f"chown {shlex.quote(owner)} {shlex.quote(path)}")
+
+    for idx, command in enumerate(config.get("runcmd", [])):
+        if isinstance(command, str):
+            lines.append(command)
+            continue
+        if not command:
+            continue
+        rendered = " ".join(shlex.quote(str(part)) for part in command)
+        if not rendered:
+            raise kopf.PermanentError(f"bootstrap cloud-config runcmd[{idx}] cannot be empty")
+        lines.append(rendered)
+
+    rendered_script = "\n".join(lines).rstrip("\n")
+    return f"{rendered_script}\n"
+
+
+def _prepare_bootstrap_script(bootstrap_data: str) -> tuple[str, str]:
+    """Normalize bootstrap payload to an executable shell script."""
+    bootstrap_format = _detect_bootstrap_format(bootstrap_data)
+    if bootstrap_format == "cloud-config":
+        return _render_cloud_config_to_shell(bootstrap_data), bootstrap_format
+    if bootstrap_format == "shell":
+        if not bootstrap_data.strip():
+            raise kopf.PermanentError("bootstrap data is empty")
+        return bootstrap_data, bootstrap_format
+    raise kopf.PermanentError("bootstrap data format is not supported")
+
+
 def _parse_heredoc_start(line: str) -> tuple[str, str] | None:
     """Parse shell heredoc forms used for writing files in bootstrap scripts."""
     direct = re.match(r'^\s*cat\s+>\s*(?P<path>\S+)\s+<<\s*["\']?(?P<tag>[A-Za-z_][A-Za-z0-9_]*)["\']?\s*$', line)
@@ -250,8 +432,8 @@ def _parse_heredoc_start(line: str) -> tuple[str, str] | None:
     return None
 
 
-def _inject_external_etcd_into_bootstrap_data(bootstrap_data: str, external_etcd: dict) -> tuple[str, bool]:
-    """Inject external etcd wiring into kubeadm ClusterConfiguration heredocs."""
+def _inject_external_etcd_into_shell_bootstrap_data(bootstrap_data: str, external_etcd: dict) -> tuple[str, bool]:
+    """Inject external etcd wiring into shell bootstrap kubeadm heredocs."""
     lines = bootstrap_data.splitlines()
     output: list[str] = []
     idx = 0
@@ -300,6 +482,47 @@ def _inject_external_etcd_into_bootstrap_data(bootstrap_data: str, external_etcd
     if bootstrap_data.endswith("\n"):
         rendered += "\n"
     return rendered, changed_any
+
+
+def _inject_external_etcd_into_cloud_config_bootstrap_data(
+    bootstrap_data: str,
+    external_etcd: dict,
+) -> tuple[str, bool]:
+    """Inject external etcd wiring into cloud-config write_files kubeadm payloads."""
+    config = _parse_cloud_config(bootstrap_data)
+    write_files = config.get("write_files", [])
+
+    saw_cluster_configuration = False
+    changed_any = False
+    for idx, entry in enumerate(write_files):
+        path = entry.get("path")
+        if not isinstance(path, str) or "kubeadm" not in path or not path.endswith((".yaml", ".yml")):
+            continue
+
+        content = _decode_cloud_write_file_content(entry, idx)
+        patched_text, saw_here, changed_here = _patch_external_etcd_in_kubeadm_yaml(content, external_etcd)
+        saw_cluster_configuration = saw_cluster_configuration or saw_here
+        changed_any = changed_any or changed_here
+        if saw_here:
+            _store_cloud_write_file_content(entry, patched_text)
+
+    if not saw_cluster_configuration:
+        raise kopf.PermanentError(
+            "externalEtcd is configured but bootstrap data has no kubeadm ClusterConfiguration to wire",
+        )
+
+    rendered = "#cloud-config\n" + yaml.safe_dump(config, sort_keys=False).rstrip("\n")
+    if bootstrap_data.endswith("\n"):
+        rendered += "\n"
+    return rendered, changed_any
+
+
+def _inject_external_etcd_into_bootstrap_data(bootstrap_data: str, external_etcd: dict) -> tuple[str, bool]:
+    """Inject external etcd wiring into shell or cloud-config bootstrap payload."""
+    bootstrap_format = _detect_bootstrap_format(bootstrap_data)
+    if bootstrap_format == "cloud-config":
+        return _inject_external_etcd_into_cloud_config_bootstrap_data(bootstrap_data, external_etcd)
+    return _inject_external_etcd_into_shell_bootstrap_data(bootstrap_data, external_etcd)
 
 
 async def _upload_external_etcd_certs(conn, namespace: str, external_etcd: dict) -> None:
@@ -723,6 +946,18 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
             ]
             raise
 
+    try:
+        bootstrap_script, bootstrap_format = _prepare_bootstrap_script(bootstrap_data)
+    except kopf.PermanentError as e:
+        patch.status["failureReason"] = "BootstrapFormatError"
+        patch.status["failureMessage"] = str(e)
+        patch.status["conditions"] = [
+            _not_ready_condition("BootstrapFormatError", str(e)),
+        ]
+        raise
+
+    logger.info("SSHMachine %s/%s bootstrap payload format: %s", namespace, name, bootstrap_format)
+
     # Read SSH key -- use patched sshKeyRef if set by host claim, otherwise from spec
     ssh_key_ref = patch.spec.get("sshKeyRef", spec.get("sshKeyRef", {}))
     secret_name = ssh_key_ref.get("name")
@@ -795,7 +1030,7 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
                     raise
 
             # Upload bootstrap script
-            await conn.upload(bootstrap_data, "/tmp/bootstrap.sh")  # noqa: S108
+            await conn.upload(bootstrap_script, "/tmp/bootstrap.sh")  # noqa: S108
 
             # Execute bootstrap
             result = await conn.execute("chmod +x /tmp/bootstrap.sh && /tmp/bootstrap.sh")  # noqa: S108
@@ -841,6 +1076,25 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
     patch.status["failureMessage"] = None
 
     logger.info("SSHMachine %s/%s provisioned: providerID=%s", namespace, name, provider_id)
+
+
+@kopf.timer(
+    API_GROUP,
+    API_VERSION,
+    "sshmachines",
+    interval=SSHMACHINE_RECONCILE_INTERVAL,
+    initial_delay=15,
+)
+async def sshmachine_reconcile_timer(spec, status, name, namespace, meta, patch, **_kwargs):
+    """Periodic reconcile to recover from missed create/update event races."""
+    await sshmachine_reconcile(
+        spec=spec,
+        status=status,
+        name=name,
+        namespace=namespace,
+        meta=meta,
+        patch=patch,
+    )
 
 
 @kopf.on.delete(API_GROUP, API_VERSION, "sshmachines")

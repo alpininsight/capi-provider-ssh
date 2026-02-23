@@ -7,14 +7,17 @@ import pytest
 
 from capi_provider_ssh.controllers.sshmachine import (
     _choose_host,
+    _detect_bootstrap_format,
     _has_machine_owner,
     _inject_external_etcd_into_bootstrap_data,
     _is_already_provisioned,
     _normalize_external_etcd,
+    _prepare_bootstrap_script,
     _release_host,
     sshmachine_delete,
     sshmachine_reboot,
     sshmachine_reconcile,
+    sshmachine_reconcile_timer,
 )
 from capi_provider_ssh.ssh import SSHResult
 
@@ -214,6 +217,129 @@ class TestSSHMachineReconcile:
                     patch=patch_obj,
                 )
             assert patch_obj["status"]["failureReason"] == "BootstrapFailed"
+
+    @pytest.mark.asyncio
+    async def test_successful_bootstrap_with_cloud_config(self, sshmachine_spec, sshmachine_meta_with_owner):
+        cloud_config_bootstrap = """## template: jinja
+#cloud-config
+write_files:
+- path: /etc/kubernetes/bootstrap-marker
+  owner: root:root
+  permissions: '0644'
+  content: |
+    marker=true
+runcmd:
+- echo bootstrap
+- [kubeadm, join, 10.0.0.1:6443]
+"""
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=0, stdout="ok", stderr="")
+        mock_conn.upload = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value=cloud_config_bootstrap,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=sshmachine_spec,
+                status={},
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+
+        uploaded_script = mock_conn.upload.call_args[0][0]
+        assert "#cloud-config" not in uploaded_script
+        assert "cat <<'__CAPI_BOOTSTRAP_FILE_0__' > /etc/kubernetes/bootstrap-marker" in uploaded_script
+        assert "kubeadm join 10.0.0.1:6443" in uploaded_script
+        assert patch_obj["status"]["initialization"]["provisioned"] is True
+
+    @pytest.mark.asyncio
+    async def test_timer_recovers_after_owner_reference_appears(self, sshmachine_spec, sshmachine_meta_with_owner):
+        waiting_patch = kopf.Patch({})
+        await sshmachine_reconcile(
+            spec=sshmachine_spec,
+            status={},
+            name="m1",
+            namespace="default",
+            meta={},
+            patch=waiting_patch,
+        )
+        assert waiting_patch["status"]["conditions"][0]["reason"] == "WaitingForMachineOwner"
+
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=0, stdout="ok", stderr="")
+        mock_conn.upload = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value="#!/bin/bash\necho bootstrap",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            recover_patch = kopf.Patch({})
+            await sshmachine_reconcile_timer(
+                spec=sshmachine_spec,
+                status=waiting_patch.get("status", {}),
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=recover_patch,
+            )
+
+        assert recover_patch["status"]["initialization"]["provisioned"] is True
+        assert recover_patch["spec"]["providerID"] == "ssh://100.64.0.10"
+
+    @pytest.mark.asyncio
+    async def test_timer_skips_already_provisioned_machine(self, sshmachine_spec, sshmachine_meta_with_owner):
+        status = {
+            "initialization": {"provisioned": True},
+            "conditions": [{"type": "Ready", "status": "True"}],
+        }
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+            new_callable=AsyncMock,
+        ) as read_bootstrap:
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile_timer(
+                spec=sshmachine_spec,
+                status=status,
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+        read_bootstrap.assert_not_called()
 
 
 class TestSSHMachineDryRun:
@@ -731,6 +857,32 @@ class TestExternalEtcdConfig:
         with pytest.raises(kopf.PermanentError, match="externalEtcd.endpoints"):
             _normalize_external_etcd(spec)
 
+    def test_detect_bootstrap_format_cloud_config(self):
+        bootstrap = """## template: jinja
+#cloud-config
+runcmd:
+- echo ok
+"""
+        assert _detect_bootstrap_format(bootstrap) == "cloud-config"
+
+    def test_prepare_bootstrap_script_renders_cloud_config(self):
+        bootstrap = """#cloud-config
+write_files:
+- path: /etc/kubernetes/bootstrap-marker
+  owner: root:root
+  permissions: '0644'
+  content: |
+    marker=true
+runcmd:
+- [echo, bootstrap]
+"""
+        script, bootstrap_format = _prepare_bootstrap_script(bootstrap)
+        assert bootstrap_format == "cloud-config"
+        assert "cat <<'__CAPI_BOOTSTRAP_FILE_0__' > /etc/kubernetes/bootstrap-marker" in script
+        assert "chmod 0644 /etc/kubernetes/bootstrap-marker" in script
+        assert "chown root:root /etc/kubernetes/bootstrap-marker" in script
+        assert "echo bootstrap" in script
+
     def test_inject_external_etcd_into_bootstrap_data(self):
         bootstrap = """#!/bin/bash
 cat > /run/kubeadm/kubeadm.yaml <<'EOF'
@@ -758,6 +910,36 @@ kubeadm init --config /run/kubeadm/kubeadm.yaml
         assert "etcd-cafile: /etc/kubernetes/pki/etcd-external/ca.crt" in patched
         assert "etcd-certfile: /etc/kubernetes/pki/etcd-external/client.crt" in patched
         assert "etcd-keyfile: /etc/kubernetes/pki/etcd-external/client.key" in patched
+
+    def test_inject_external_etcd_into_cloud_config_bootstrap_data(self):
+        bootstrap = """#cloud-config
+write_files:
+- path: /run/kubeadm/kubeadm.yaml
+  owner: root:root
+  permissions: '0600'
+  content: |
+    apiVersion: kubeadm.k8s.io/v1beta4
+    kind: ClusterConfiguration
+    apiServer:
+      extraArgs: {}
+    ---
+    apiVersion: kubeadm.k8s.io/v1beta4
+    kind: InitConfiguration
+    nodeRegistration:
+      name: cp-0
+runcmd:
+- kubeadm init --config /run/kubeadm/kubeadm.yaml
+"""
+        external = {
+            "servers": "https://10.0.0.10:2379,https://10.0.0.11:2379",
+            "ca_file": "/etc/kubernetes/pki/etcd-external/ca.crt",
+            "cert_file": "/etc/kubernetes/pki/etcd-external/client.crt",
+            "key_file": "/etc/kubernetes/pki/etcd-external/client.key",
+        }
+        patched, changed = _inject_external_etcd_into_bootstrap_data(bootstrap, external)
+        assert changed is True
+        assert patched.startswith("#cloud-config")
+        assert "etcd-servers: https://10.0.0.10:2379,https://10.0.0.11:2379" in patched
 
     def test_inject_external_etcd_requires_cluster_configuration(self):
         bootstrap = """#!/bin/bash

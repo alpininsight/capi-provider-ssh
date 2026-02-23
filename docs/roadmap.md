@@ -1,5 +1,9 @@
 # Roadmap
 
+## Active Fix Plans
+
+- [Issue #119: Cloud-init bootstrap compatibility + SSHMachine reconcile reliability](roadmap/issue-119-bootstrap-cloud-init-and-reconcile-plan.md)
+
 ## Current Capabilities (v0.3.x)
 
 | Feature | Status |
