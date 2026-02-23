@@ -29,10 +29,10 @@ jobs:
           fi
 
           if [[ "$BASE_REF" == "develop" ]]; then
-            if [[ "$HEAD_REF" =~ ^(feature|feat|fix|refactor|chore|docs|hotfix)/.+$ ]]; then
+            if [[ "$HEAD_REF" =~ ^(feature|feat|fix|refactor|perf|chore|docs|style|test|build|ci|hotfix|release)/.+$ ]]; then
               exit 0
             fi
-            echo "ERROR: PRs into develop are only allowed from feature/*, feat/*, fix/*, refactor/*, chore/*, docs/*, hotfix/*."
+            echo "ERROR: PRs into develop must use a conventional prefix (feat/, fix/, refactor/, perf/, chore/, docs/, style/, test/, build/, ci/, hotfix/, release/)."
             exit 1
           fi
 
