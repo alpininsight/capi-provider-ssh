@@ -110,7 +110,17 @@ def ssh_key_secret(core_api, test_namespace):
 @pytest.fixture
 def bootstrap_secret(core_api, test_namespace):
     """Create a bootstrap data Secret (simulates what kubeadm bootstrap provider creates)."""
-    bootstrap_data = "#!/bin/bash\necho 'bootstrap test'"
+    bootstrap_data = """## template: jinja
+#cloud-config
+write_files:
+- path: /etc/kubernetes/bootstrap-marker
+  owner: root:root
+  permissions: '0644'
+  content: |
+    marker=true
+runcmd:
+- echo bootstrap test
+"""
     secret = kubernetes.client.V1Secret(
         metadata=kubernetes.client.V1ObjectMeta(name="test-bootstrap-data", namespace=test_namespace),
         data={"value": base64.b64encode(bootstrap_data.encode()).decode()},
