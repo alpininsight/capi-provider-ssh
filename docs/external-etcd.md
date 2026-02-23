@@ -81,7 +81,7 @@ on control-plane SSHMachines whose bootstrap data includes a
 ## Example
 
 ```yaml
-apiVersion: infrastructure.alpininsight.ai/v1alpha1
+apiVersion: infrastructure.alpininsight.ai/v1beta1
 kind: SSHMachine
 metadata:
   name: cp-0
