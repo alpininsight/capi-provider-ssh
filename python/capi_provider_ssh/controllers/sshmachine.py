@@ -17,7 +17,6 @@ import re
 import shlex
 import socket
 import time
-import uuid
 
 import kopf
 import kubernetes
@@ -45,10 +44,16 @@ SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS = int(
 )
 SSHMACHINE_DISTRIBUTED_LOCK_ANNOTATION = "infrastructure.cluster.x-k8s.io/reconcile-lock"
 _RECONCILE_LOCKS: dict[str, asyncio.Lock] = {}
-_RECONCILE_LOCK_HOLDER = (
-    f"{(os.environ.get('POD_NAME') or os.environ.get('HOSTNAME') or socket.gethostname()).replace('|', '_')}"
-    f":{os.getpid()}:{uuid.uuid4().hex[:8]}"
-)
+
+
+def _build_reconcile_lock_holder() -> str:
+    """Return a stable lock holder identity across process restarts."""
+    raw_holder = os.environ.get("POD_NAME") or os.environ.get("HOSTNAME") or socket.gethostname()
+    holder = (raw_holder or "unknown").strip().replace("|", "_")
+    return holder or "unknown"
+
+
+_RECONCILE_LOCK_HOLDER = _build_reconcile_lock_holder()
 
 
 def _now_iso() -> str:
