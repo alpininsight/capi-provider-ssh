@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Enforce deterministic integration teardown cleanup
 
+### Testing
+
+- Enforce deterministic integration teardown cleanup
+
 ## [0.3.1] - 2026-02-23
 
 ### Release
