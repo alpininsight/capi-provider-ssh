@@ -8,6 +8,7 @@ import pytest
 
 from capi_provider_ssh.controllers.sshmachine import (
     _choose_host,
+    _cleanup_reconcile_lock,
     _detect_bootstrap_format,
     _get_reconcile_lock,
     _has_machine_owner,
@@ -15,6 +16,7 @@ from capi_provider_ssh.controllers.sshmachine import (
     _is_already_provisioned,
     _normalize_external_etcd,
     _prepare_bootstrap_script,
+    _reconcile_lock_key,
     _release_host,
     sshmachine_delete,
     sshmachine_reboot,
@@ -714,6 +716,24 @@ class TestSSHMachineDelete:
             body = call_kwargs[1]["body"]
             assert body["spec"]["consumerRef"] == {}
             assert body["status"]["inUse"] is False
+
+    @pytest.mark.asyncio
+    async def test_reconcile_lock_cleanup_keeps_mapping_when_waiter_exists(self):
+        lock = _get_reconcile_lock("default", "m-lock")
+        key = _reconcile_lock_key("default", "m-lock")
+
+        await lock.acquire()
+        waiter = asyncio.create_task(lock.acquire())
+        await asyncio.sleep(0)
+
+        assert _cleanup_reconcile_lock("default", "m-lock", lock) is False
+        assert _reconcile_lock_key("default", "m-lock") == key
+
+        lock.release()
+        await waiter
+        lock.release()
+
+        assert _cleanup_reconcile_lock("default", "m-lock", lock) is True
 
 
 class TestChooseHost:
