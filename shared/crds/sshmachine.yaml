@@ -183,6 +183,18 @@ spec:
                   type: string
                 failureMessage:
                   type: string
+                bootstrapDiagnostics:
+                  type: object
+                  properties:
+                    phase:
+                      type: string
+                      description: Bootstrap phase inferred from output signatures (reset/init/join/unknown).
+                    exitCode:
+                      type: integer
+                      description: Exit code returned by the bootstrap script command.
+                    stderrExcerpt:
+                      type: string
+                      description: Sanitized stderr/stdout excerpt for concise failure triage.
                 remediation:
                   type: object
                   properties:
