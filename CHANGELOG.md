@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+- Stabilize distributed lock holder identity across restarts 
+
+### Miscellaneous
+
+- Merge main into develop for release convergence
+
+## [0.3.8] - 2026-02-24
+
+### Release
+
+- Promote develop to main 
+
+## [0.3.4] - 2026-02-23
+
+### Release
+
+- Promote develop to main 
+
+## [0.3.2] - 2026-02-23
+
+### Bug Fixes
+
 - **sshmachine:** Support cloud-init bootstrap and timer reconcile
 - **sshmachine:** Prevent bootstrap rerun after provisioned 
 - **sshmachine:** Serialize reconcile to prevent bootstrap race
@@ -20,9 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **governance:** Add ITSM and ISO 20000 continuity guidance
 
-### Testing
+### Miscellaneous
 
-- Enforce deterministic integration teardown cleanup
+- Sync main into develop for release PR mergeability 
 
 ### Testing
 
