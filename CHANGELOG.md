@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Merge main into develop for release convergence
 
+### Testing
+
+- **e2e:** Add SSH e2e tests against real target 
+
 ## [0.3.8] - 2026-02-24
 
 ### Release
