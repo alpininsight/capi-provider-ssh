@@ -9,7 +9,10 @@ import pytest
 
 from capi_provider_ssh.controllers.sshmachine import (
     _RECONCILE_LOCK_HOLDER,
+    BOOTSTRAP_SENTINEL_HIT_OUTPUT,
+    BOOTSTRAP_SUCCESS_SENTINEL_PATH,
     _acquire_distributed_reconcile_lock,
+    _bootstrap_execution_command,
     _build_reconcile_lock_holder,
     _choose_host,
     _cleanup_reconcile_lock,
@@ -200,6 +203,15 @@ class TestDistributedReconcileLock:
         mock_api.patch_namespaced_custom_object.assert_not_called()
 
 
+class TestBootstrapSentinelCommand:
+    def test_bootstrap_execution_command_includes_guard_and_touch(self):
+        cmd = _bootstrap_execution_command()
+        assert BOOTSTRAP_SUCCESS_SENTINEL_PATH in cmd
+        assert BOOTSTRAP_SENTINEL_HIT_OUTPUT in cmd
+        assert f"touch {BOOTSTRAP_SUCCESS_SENTINEL_PATH}" in cmd
+        assert "chmod +x /tmp/bootstrap.sh && /tmp/bootstrap.sh" in cmd
+
+
 class TestSSHMachineReconcile:
     @pytest.mark.asyncio
     async def test_paused_skips(self, sshmachine_meta_with_owner):
@@ -349,6 +361,51 @@ class TestSSHMachineReconcile:
             assert patch_obj["spec"]["providerID"] == "ssh://100.64.0.10"
             assert patch_obj["status"]["addresses"][0]["address"] == "100.64.0.10"
             assert patch_obj["status"]["failureReason"] is None
+            executed_cmd = mock_conn.execute.call_args[0][0]
+            assert BOOTSTRAP_SUCCESS_SENTINEL_PATH in executed_cmd
+            assert BOOTSTRAP_SENTINEL_HIT_OUTPUT in executed_cmd
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_sentinel_short_circuit_logs_skip(self, sshmachine_spec, sshmachine_meta_with_owner):
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=0, stdout=f"{BOOTSTRAP_SENTINEL_HIT_OUTPUT}\n", stderr="")
+        mock_conn.upload = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value="#!/bin/bash\necho bootstrap",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+            patch("capi_provider_ssh.controllers.sshmachine.logger") as mock_logger,
+        ):
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=sshmachine_spec,
+                status={},
+                name="m-sentinel",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+        assert patch_obj["status"]["initialization"]["provisioned"] is True
+        assert any(
+            "bootstrap sentinel already present" in call.args[0]
+            for call in mock_logger.info.call_args_list
+            if call.args
+        )
 
     @pytest.mark.asyncio
     async def test_bootstrap_failure_sets_failure_status(self, sshmachine_spec, sshmachine_meta_with_owner):
@@ -860,6 +917,7 @@ class TestSSHMachineDelete:
             mock_conn.execute.assert_called_once()
             cmd = mock_conn.execute.call_args[0][0]
             assert "kubeadm reset -f" in cmd
+            assert BOOTSTRAP_SUCCESS_SENTINEL_PATH in cmd
 
     @pytest.mark.asyncio
     async def test_delete_ssh_failure_does_not_raise(self, sshmachine_spec):
