@@ -1,5 +1,6 @@
 """Tests for SSHMachine controller."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import kopf
@@ -8,6 +9,7 @@ import pytest
 from capi_provider_ssh.controllers.sshmachine import (
     _choose_host,
     _detect_bootstrap_format,
+    _get_reconcile_lock,
     _has_machine_owner,
     _inject_external_etcd_into_bootstrap_data,
     _is_already_provisioned,
@@ -390,6 +392,105 @@ runcmd:
                 patch=patch_obj,
             )
         read_bootstrap.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_waiting_reconcile_refreshes_live_state_and_skips_bootstrap(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        name = "m-race-refresh"
+        namespace = "default"
+        lock = _get_reconcile_lock(namespace, name)
+        await lock.acquire()
+
+        latest = {
+            "spec": sshmachine_spec,
+            "status": {
+                "initialization": {"provisioned": True},
+                "conditions": [{"type": "Ready", "status": "True"}],
+            },
+            "metadata": sshmachine_meta_with_owner,
+        }
+
+        task = None
+        try:
+            with (
+                patch(
+                    "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine",
+                    return_value=latest,
+                ),
+                patch(
+                    "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                    new_callable=AsyncMock,
+                ) as read_bootstrap,
+            ):
+                patch_obj = kopf.Patch({})
+                task = asyncio.create_task(
+                    sshmachine_reconcile(
+                        spec=sshmachine_spec,
+                        status={},
+                        name=name,
+                        namespace=namespace,
+                        meta=sshmachine_meta_with_owner,
+                        patch=patch_obj,
+                    ),
+                )
+                await asyncio.sleep(0)
+                lock.release()
+                await task
+                read_bootstrap.assert_not_called()
+        finally:
+            if task is not None and not task.done():
+                await task
+            if lock.locked():
+                lock.release()
+
+    @pytest.mark.asyncio
+    async def test_handler_and_timer_reconcile_are_serialized(self, sshmachine_spec, sshmachine_meta_with_owner):
+        name = "m-race-serialized"
+        namespace = "default"
+        active = 0
+        max_active = 0
+
+        async def fake_impl(**_kwargs):
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.05)
+            active -= 1
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine",
+                return_value=None,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._sshmachine_reconcile_impl",
+                new=AsyncMock(side_effect=fake_impl),
+            ) as reconcile_impl,
+        ):
+            await asyncio.gather(
+                sshmachine_reconcile(
+                    spec=sshmachine_spec,
+                    status={},
+                    name=name,
+                    namespace=namespace,
+                    meta=sshmachine_meta_with_owner,
+                    patch=kopf.Patch({}),
+                ),
+                sshmachine_reconcile_timer(
+                    spec=sshmachine_spec,
+                    status={},
+                    name=name,
+                    namespace=namespace,
+                    meta=sshmachine_meta_with_owner,
+                    patch=kopf.Patch({}),
+                ),
+            )
+
+        assert reconcile_impl.await_count == 2
+        assert max_active == 1
 
 
 class TestSSHMachineDryRun:
