@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **sshmachine:** Serialize reconcile to prevent bootstrap race
 - **image:** Run provider module via kopf -m to avoid import errors
 - **sshmachine:** Block stale timer/handler bootstrap reruns 
+- Prevent cross-pod concurrent SSHMachine bootstrap 
 
 ### Documentation
 
