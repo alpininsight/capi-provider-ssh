@@ -1,12 +1,15 @@
 """Tests for SSHMachine controller."""
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import kopf
 import pytest
 
 from capi_provider_ssh.controllers.sshmachine import (
+    _RECONCILE_LOCK_HOLDER,
+    _acquire_distributed_reconcile_lock,
     _choose_host,
     _cleanup_reconcile_lock,
     _detect_bootstrap_format,
@@ -17,6 +20,7 @@ from capi_provider_ssh.controllers.sshmachine import (
     _normalize_external_etcd,
     _prepare_bootstrap_script,
     _reconcile_lock_key,
+    _release_distributed_reconcile_lock,
     _release_host,
     sshmachine_delete,
     sshmachine_reboot,
@@ -24,6 +28,16 @@ from capi_provider_ssh.controllers.sshmachine import (
     sshmachine_reconcile_timer,
 )
 from capi_provider_ssh.ssh import SSHResult
+
+
+@pytest.fixture(autouse=True)
+def distributed_lock_success_for_handlers():
+    """Keep existing reconcile/delete tests focused by defaulting distributed lock to success."""
+    with (
+        patch("capi_provider_ssh.controllers.sshmachine._acquire_distributed_reconcile_lock", return_value=True),
+        patch("capi_provider_ssh.controllers.sshmachine._release_distributed_reconcile_lock", return_value=True),
+    ):
+        yield
 
 
 class TestHasMachineOwner:
@@ -62,6 +76,87 @@ class TestIsAlreadyProvisioned:
             "conditions": [],
         }
         assert _is_already_provisioned(status, "ssh://10.0.0.1") is True
+
+
+class TestDistributedReconcileLock:
+    def test_acquire_sets_annotation_when_unlocked(self):
+        mock_api = MagicMock()
+        mock_api.get_namespaced_custom_object.return_value = {
+            "metadata": {
+                "resourceVersion": "42",
+                "annotations": {},
+            },
+        }
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            assert _acquire_distributed_reconcile_lock("default", "m1") is True
+
+        mock_api.patch_namespaced_custom_object.assert_called_once()
+        patch_body = mock_api.patch_namespaced_custom_object.call_args.kwargs["body"]
+        lock_value = patch_body["metadata"]["annotations"]["infrastructure.cluster.x-k8s.io/reconcile-lock"]
+        holder, raw_expires = lock_value.rsplit("|", 1)
+        assert holder == _RECONCILE_LOCK_HOLDER
+        assert int(raw_expires) > int(time.time())
+
+    def test_acquire_returns_false_when_another_holder_lock_is_active(self):
+        mock_api = MagicMock()
+        mock_api.get_namespaced_custom_object.return_value = {
+            "metadata": {
+                "resourceVersion": "42",
+                "annotations": {
+                    "infrastructure.cluster.x-k8s.io/reconcile-lock": f"other-holder|{int(time.time()) + 120}",
+                },
+            },
+        }
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            assert _acquire_distributed_reconcile_lock("default", "m1") is False
+
+        mock_api.patch_namespaced_custom_object.assert_not_called()
+
+    def test_acquire_reclaims_expired_lock(self):
+        mock_api = MagicMock()
+        mock_api.get_namespaced_custom_object.return_value = {
+            "metadata": {
+                "resourceVersion": "42",
+                "annotations": {
+                    "infrastructure.cluster.x-k8s.io/reconcile-lock": "other-holder|1",
+                },
+            },
+        }
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            assert _acquire_distributed_reconcile_lock("default", "m1") is True
+
+        mock_api.patch_namespaced_custom_object.assert_called_once()
+
+    def test_release_refuses_when_lock_is_owned_by_other_holder(self):
+        mock_api = MagicMock()
+        mock_api.get_namespaced_custom_object.return_value = {
+            "metadata": {
+                "resourceVersion": "43",
+                "annotations": {
+                    "infrastructure.cluster.x-k8s.io/reconcile-lock": f"other-holder|{int(time.time()) + 120}",
+                },
+            },
+        }
+
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+            return_value=mock_api,
+        ):
+            assert _release_distributed_reconcile_lock("default", "m1") is False
+
+        mock_api.patch_namespaced_custom_object.assert_not_called()
 
 
 class TestSSHMachineReconcile:
@@ -494,6 +589,33 @@ runcmd:
         assert reconcile_impl.await_count == 2
         assert max_active == 1
 
+    @pytest.mark.asyncio
+    async def test_reconcile_requeues_when_distributed_lock_is_held(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._acquire_distributed_reconcile_lock",
+                return_value=False,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._sshmachine_reconcile_impl",
+                new_callable=AsyncMock,
+            ) as reconcile_impl,
+            pytest.raises(kopf.TemporaryError, match="distributed reconcile lock"),
+        ):
+            await sshmachine_reconcile(
+                spec=sshmachine_spec,
+                status={},
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=kopf.Patch({}),
+            )
+        reconcile_impl.assert_not_awaited()
+
 
 class TestSSHMachineDryRun:
     @pytest.mark.asyncio
@@ -681,6 +803,22 @@ class TestSSHMachineDelete:
         ):
             # Should not raise
             await sshmachine_delete(spec=sshmachine_spec, name="m1", namespace="default")
+
+    @pytest.mark.asyncio
+    async def test_delete_requeues_when_distributed_lock_is_held(self, sshmachine_spec):
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._acquire_distributed_reconcile_lock",
+                return_value=False,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._release_host",
+                new_callable=AsyncMock,
+            ) as release_host,
+            pytest.raises(kopf.TemporaryError, match="distributed reconcile lock"),
+        ):
+            await sshmachine_delete(spec=sshmachine_spec, name="m1", namespace="default")
+        release_host.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_delete_releases_host(self, sshmachine_spec):

@@ -98,6 +98,29 @@ New releases are cut automatically when `develop` is merged into `main`. Check
 the [Releases page](https://github.com/alpininsight/capi-provider-ssh/releases)
 for the latest stable tag.
 
+## How does the provider prevent concurrent bootstrap across multiple controller pods?
+
+The SSHMachine controller now applies a **cross-process distributed lock** on
+each `SSHMachine` by writing a lock annotation with optimistic concurrency
+(`metadata.resourceVersion` compare-and-swap). This sits on top of the existing
+in-process `asyncio.Lock`.
+
+Behavior:
+
+1. Reconcile/delete handlers first acquire the in-process per-machine lock.
+2. Then they acquire the distributed lock annotation.
+3. If another pod already holds the lock, the handler requeues with
+   `kopf.TemporaryError` and does not execute bootstrap/cleanup.
+
+Environment controls:
+
+- `SSHMACHINE_DISTRIBUTED_LOCK_ENABLED` (default: `true`)
+- `SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS` (default: `7200`)
+- `SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS` (default: `5`)
+
+This protects rolling-update overlap windows where two operator instances may
+be active briefly.
+
 ## How does integration test teardown avoid leaked test namespaces?
 
 Integration tests now use a deterministic teardown contract in
