@@ -23,6 +23,8 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "e2e: marks tests as e2e tests requiring real SSH targets (deselect with '-m \"not e2e\"')",
+    "nightly: marks tests for nightly CI only",
 ]
 
 [tool.ruff]
