@@ -4,6 +4,20 @@
 
 - [Issue #119: Cloud-init bootstrap compatibility + SSHMachine reconcile reliability](roadmap/issue-119-bootstrap-cloud-init-and-reconcile-plan.md)
 
+## Objective: Dev Substrate Provisioning
+
+Build a dev-only provisioning extension for local infrastructure testing.
+
+- Primary substrates:
+  - Lima on macOS (MacBook development)
+  - Hypervisor on Windows 11 development environments
+- Scope:
+  - Create and manage dev machines from declarative YAML
+  - Keep SSH-based bootstrap and reconciliation flow for cluster lifecycle testing
+- Constraints:
+  - No Docker dependency in this provisioning path
+  - Explicitly non-production objective (developer and lab environments only)
+
 ## Current Capabilities (v0.3.x)
 
 | Feature | Status |
