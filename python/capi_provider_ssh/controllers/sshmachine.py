@@ -48,9 +48,24 @@ def _get_reconcile_lock(namespace: str, name: str) -> asyncio.Lock:
     return lock
 
 
-def _cleanup_reconcile_lock(namespace: str, name: str) -> None:
-    """Drop lock entry after delete to avoid unbounded lock-map growth."""
-    _RECONCILE_LOCKS.pop(_machine_reconcile_key(namespace, name), None)
+def _cleanup_reconcile_lock(namespace: str, name: str, lock: asyncio.Lock | None = None) -> bool:
+    """Drop lock entry only when no holder/waiter remains.
+
+    Returns True when the mapping entry is removed.
+    """
+    key = _machine_reconcile_key(namespace, name)
+    current = _RECONCILE_LOCKS.get(key)
+    if current is None:
+        return False
+    if lock is not None and current is not lock:
+        return False
+    if current.locked():
+        return False
+    waiters = getattr(current, "_waiters", None)
+    if waiters:
+        return False
+    _RECONCILE_LOCKS.pop(key, None)
+    return True
 
 
 def _read_current_sshmachine_status(namespace: str, name: str) -> dict | None:
@@ -1197,46 +1212,52 @@ async def sshmachine_reconcile_timer(spec, status, name, namespace, meta, patch,
 async def sshmachine_delete(spec, name, namespace, **_kwargs):
     """Handle SSHMachine deletion -- cleanup via SSH (kubeadm reset) and release host."""
     logger.info("SSHMachine %s/%s deleting", namespace, name)
-    _cleanup_reconcile_lock(namespace, name)
-
-    # Release the claimed SSHHost back to the pool
-    await _release_host(spec, name, namespace)
-
-    address = spec.get("address")
-    port = spec.get("port", 22)
-    user = spec.get("user", "root")
-    ssh_key_ref = spec.get("sshKeyRef", {})
-    secret_name = ssh_key_ref.get("name")
-    secret_key = ssh_key_ref.get("key", "value")
-
-    if not address or not secret_name:
-        logger.warning("SSHMachine %s/%s missing address or sshKeyRef, skipping cleanup", namespace, name)
-        return
+    lock = _get_reconcile_lock(namespace, name)
+    if lock.locked():
+        logger.info("SSHMachine %s/%s waiting for in-flight reconcile before delete cleanup", namespace, name)
 
     try:
-        ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
-    except Exception as e:
-        logger.warning("SSHMachine %s/%s failed to read SSH key for cleanup: %s", namespace, name, e)
-        # Don't block finalizer removal if we can't read the key
-        return
+        async with lock:
+            # Release the claimed SSHHost back to the pool
+            await _release_host(spec, name, namespace)
 
-    try:
-        async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
-            cleanup_cmd = "kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet"
-            result = await conn.execute(cleanup_cmd)
-            if result.success:
-                logger.info("SSHMachine %s/%s cleanup succeeded on %s", namespace, name, address)
-            else:
-                logger.warning(
-                    "SSHMachine %s/%s cleanup failed on %s (exit=%d), allowing finalizer removal",
-                    namespace,
-                    name,
-                    address,
-                    result.exit_code,
-                )
-    except Exception as e:
-        # Cleanup failures must not block finalizer removal
-        logger.warning("SSHMachine %s/%s SSH cleanup error on %s: %s", namespace, name, address, e)
+            address = spec.get("address")
+            port = spec.get("port", 22)
+            user = spec.get("user", "root")
+            ssh_key_ref = spec.get("sshKeyRef", {})
+            secret_name = ssh_key_ref.get("name")
+            secret_key = ssh_key_ref.get("key", "value")
+
+            if not address or not secret_name:
+                logger.warning("SSHMachine %s/%s missing address or sshKeyRef, skipping cleanup", namespace, name)
+                return
+
+            try:
+                ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
+            except Exception as e:
+                logger.warning("SSHMachine %s/%s failed to read SSH key for cleanup: %s", namespace, name, e)
+                # Don't block finalizer removal if we can't read the key
+                return
+
+            try:
+                async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
+                    cleanup_cmd = "kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet"
+                    result = await conn.execute(cleanup_cmd)
+                    if result.success:
+                        logger.info("SSHMachine %s/%s cleanup succeeded on %s", namespace, name, address)
+                    else:
+                        logger.warning(
+                            "SSHMachine %s/%s cleanup failed on %s (exit=%d), allowing finalizer removal",
+                            namespace,
+                            name,
+                            address,
+                            result.exit_code,
+                        )
+            except Exception as e:
+                # Cleanup failures must not block finalizer removal
+                logger.warning("SSHMachine %s/%s SSH cleanup error on %s: %s", namespace, name, address, e)
+    finally:
+        _cleanup_reconcile_lock(namespace, name, lock)
 
 
 @kopf.on.field(API_GROUP, API_VERSION, "sshmachines", field="spec.remediation.reboot.requestedAt")

@@ -1,5 +1,6 @@
 """Tests for SSHMachine controller."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import kopf
@@ -7,10 +8,13 @@ import pytest
 
 from capi_provider_ssh.controllers.sshmachine import (
     _choose_host,
+    _cleanup_reconcile_lock,
     _detect_bootstrap_format,
+    _get_reconcile_lock,
     _has_machine_owner,
     _inject_external_etcd_into_bootstrap_data,
     _is_already_provisioned,
+    _machine_reconcile_key,
     _normalize_external_etcd,
     _prepare_bootstrap_script,
     _release_host,
@@ -605,6 +609,27 @@ class TestSSHMachineDelete:
             body = call_kwargs[1]["body"]
             assert body["spec"]["consumerRef"] == {}
             assert body["status"]["inUse"] is False
+
+    @pytest.mark.asyncio
+    async def test_reconcile_lock_cleanup_keeps_mapping_when_waiter_exists(self):
+        lock = _get_reconcile_lock("default", "m-lock")
+        key = _machine_reconcile_key("default", "m-lock")
+
+        await lock.acquire()
+        waiter = asyncio.create_task(lock.acquire())
+        await asyncio.sleep(0)
+
+        # Lock is still in use; cleanup must not remove mapping.
+        assert _cleanup_reconcile_lock("default", "m-lock", lock) is False
+        assert _machine_reconcile_key("default", "m-lock") == key
+
+        lock.release()
+        await waiter
+        # Release waiter-acquired lock too.
+        lock.release()
+
+        # Now no holder/waiter remains, cleanup can drop the mapping.
+        assert _cleanup_reconcile_lock("default", "m-lock", lock) is True
 
 
 class TestChooseHost:
