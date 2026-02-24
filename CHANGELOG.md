@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 
 - Stabilize distributed lock holder identity across restarts 
+- Re-read live SSHMachine state before bootstrap 
 
 ### Miscellaneous
 
