@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **sshmachine:** Classify bootstrap failure phases
 - **sshmachine:** Gate ready on kubelet post-bootstrap checks
 
+### Documentation
+
+- **roadmap:** Add dev substrate provisioning objective
+
 ### Miscellaneous
 
 - Merge main into develop for release convergence
