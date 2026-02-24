@@ -23,7 +23,7 @@ branches:
     regex: ^develop$
     mode: ContinuousDelivery
     tag: alpha
-    increment: Minor
+    increment: Patch
     prevent-increment-of-merged-branch-version: false
     track-merge-target: true
     is-release-branch: false

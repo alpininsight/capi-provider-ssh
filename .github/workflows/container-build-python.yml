@@ -57,7 +57,8 @@ jobs:
               echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
             fi
           elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            echo "tag=${{ steps.gitversion.outputs.SemVer }}" >> "${GITHUB_OUTPUT}"
+            # Keep develop on the same semantic line as main while preserving prerelease semantics.
+            echo "tag=v${{ steps.gitversion.outputs.SemVer }}" >> "${GITHUB_OUTPUT}"
           else
             echo "tag=" >> "${GITHUB_OUTPUT}"
           fi

@@ -92,7 +92,7 @@ branches:
     regex: ^develop$
     mode: ContinuousDelivery
     tag: alpha
-    increment: Minor
+    increment: Patch
     prevent-increment-of-merged-branch-version: false
     track-merge-target: true
     is-release-branch: false
@@ -147,6 +147,12 @@ increment calculated on the source branch and falls back to the `increment`
 setting on `main` (which is `Patch`). Setting it to `false` lets the
 conventional commit prefix (`feat:` = minor, `fix:` = patch) flow through
 correctly.
+
+### Develop Alignment
+
+`develop` uses `increment: Patch` with an `alpha` pre-release tag so pre-release
+container versions stay aligned to the same base line as `main` (for example,
+`v0.3.8-alpha.1` vs `v0.3.8`) instead of drifting to the next minor by default.
 
 ### Version Bump Rules
 
