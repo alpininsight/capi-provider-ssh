@@ -45,6 +45,7 @@ SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS = int(
 SSHMACHINE_DISTRIBUTED_LOCK_ANNOTATION = "infrastructure.cluster.x-k8s.io/reconcile-lock"
 BOOTSTRAP_SUCCESS_SENTINEL_PATH = "/run/cluster-api/bootstrap-success.complete"
 BOOTSTRAP_SENTINEL_HIT_OUTPUT = "__CAPI_PROVIDER_SSH_BOOTSTRAP_SENTINEL_HIT__"
+KUBELET_READY_SENTINEL_OUTPUT = "__CAPI_PROVIDER_SSH_KUBELET_READY__"
 BOOTSTRAP_PHASE_REASON_MAP = {
     "reset": "BootstrapResetFailed",
     "init": "BootstrapInitFailed",
@@ -469,6 +470,24 @@ def _bootstrap_execution_command() -> str:
     )
 
 
+def _post_bootstrap_readiness_command() -> str:
+    """Check host-side kubelet readiness after bootstrap exits successfully."""
+    kubelet_ready = shlex.quote(KUBELET_READY_SENTINEL_OUTPUT)
+    return (
+        "if ! command -v systemctl >/dev/null 2>&1; then "
+        "echo 'systemctl command not found on host' >&2; "
+        "exit 31; "
+        "fi && "
+        "if systemctl is-active --quiet kubelet; then "
+        f"printf '%s\\n' {kubelet_ready}; "
+        "else "
+        "(systemctl is-active kubelet || true) >&2; "
+        "(systemctl --no-pager --full status kubelet 2>/dev/null | tail -n 20 || true) >&2; "
+        "exit 32; "
+        "fi"
+    )
+
+
 def _sanitize_bootstrap_diagnostic_text(text: str) -> str:
     """Redact sensitive kubeadm values before storing in status."""
     sanitized = text
@@ -477,7 +496,7 @@ def _sanitize_bootstrap_diagnostic_text(text: str) -> str:
     return re.sub(r"\s+", " ", sanitized).strip()
 
 
-def _excerpt_bootstrap_output(result: SSHResult) -> str:
+def _excerpt_command_output(result: SSHResult) -> str:
     """Return a compact, sanitized stderr/stdout excerpt for diagnostics."""
     for chunk in (result.stderr, result.stdout):
         excerpt = _sanitize_bootstrap_diagnostic_text(chunk or "")
@@ -526,7 +545,7 @@ def _classify_bootstrap_failure(result: SSHResult, bootstrap_script: str) -> tup
     """Classify bootstrap failures and build safe status diagnostics."""
     phase = _detect_bootstrap_failure_phase(result.stderr, result.stdout, bootstrap_script)
     reason = BOOTSTRAP_PHASE_REASON_MAP.get(phase, "BootstrapFailed")
-    stderr_excerpt = _excerpt_bootstrap_output(result)
+    stderr_excerpt = _excerpt_command_output(result)
     phase_label = {
         "reset": "reset phase",
         "init": "init phase",
@@ -538,6 +557,17 @@ def _classify_bootstrap_failure(result: SSHResult, bootstrap_script: str) -> tup
     else:
         failure_message = f"{failure_message}. Inspect kubeadm and cloud-init logs on the host."
     return reason, phase, failure_message, stderr_excerpt
+
+
+def _classify_kubelet_not_ready(result: SSHResult) -> tuple[str, str]:
+    """Build status reason/message when post-bootstrap kubelet checks fail."""
+    output_excerpt = _excerpt_command_output(result)
+    failure_message = f"Bootstrap completed, but kubelet is not ready (exit {result.exit_code})"
+    if output_excerpt:
+        failure_message = f"{failure_message}: {output_excerpt}"
+    else:
+        failure_message = f"{failure_message}. Waiting for kubelet to become active."
+    return "KubeletNotReady", failure_message
 
 
 def _parse_heredoc_start(line: str) -> tuple[str, str] | None:
@@ -1410,6 +1440,25 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
                     namespace,
                     name,
                     address,
+                )
+
+            readiness_result = await conn.execute(_post_bootstrap_readiness_command())  # noqa: S108
+            if not readiness_result.success:
+                failure_reason, failure_message = _classify_kubelet_not_ready(readiness_result)
+                patch.status["initialization"] = {"provisioned": False}
+                patch.status["failureReason"] = failure_reason
+                patch.status["failureMessage"] = failure_message
+                patch.status["conditions"] = [
+                    _not_ready_condition(failure_reason, failure_message),
+                    _info_condition(
+                        "Bootstrapped",
+                        "BootstrapCompleted",
+                        "Bootstrap script completed; waiting for kubelet readiness checks to pass",
+                    ),
+                ]
+                raise kopf.TemporaryError(
+                    f"Post-bootstrap readiness check failed ({failure_reason}, exit {readiness_result.exit_code})",
+                    delay=30,
                 )
 
     except kopf.TemporaryError:
