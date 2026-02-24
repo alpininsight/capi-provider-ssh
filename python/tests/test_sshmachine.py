@@ -585,6 +585,40 @@ runcmd:
                 lock.release()
 
     @pytest.mark.asyncio
+    async def test_reconcile_refreshes_live_state_without_wait_and_skips_stale_bootstrap(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        latest = {
+            "spec": sshmachine_spec,
+            "status": {
+                "initialization": {"provisioned": True},
+                "conditions": [{"type": "Ready", "status": "True"}],
+            },
+            "metadata": sshmachine_meta_with_owner,
+        }
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine",
+                return_value=latest,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+            ) as read_bootstrap,
+        ):
+            await sshmachine_reconcile(
+                spec=sshmachine_spec,
+                status={},
+                name="m-race-no-wait-flag",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=kopf.Patch({}),
+            )
+        read_bootstrap.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_handler_and_timer_reconcile_are_serialized(self, sshmachine_spec, sshmachine_meta_with_owner):
         name = "m-race-serialized"
         namespace = "default"

@@ -109,7 +109,9 @@ Behavior:
 
 1. Reconcile/delete handlers first acquire the in-process per-machine lock.
 2. Then they acquire the distributed lock annotation.
-3. If another pod already holds the lock, the handler requeues with
+3. Under lock, reconcile re-reads the live `SSHMachine` from the API server and
+   skips bootstrap when `status.initialization.provisioned=true`.
+4. If another pod already holds the lock, the handler requeues with
    `kopf.TemporaryError` and does not execute bootstrap/cleanup.
 
 Environment controls:
