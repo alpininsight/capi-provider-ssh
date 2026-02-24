@@ -3,6 +3,7 @@
 ## Active Fix Plans
 
 - [Issue #119: Cloud-init bootstrap compatibility + SSHMachine reconcile reliability](roadmap/issue-119-bootstrap-cloud-init-and-reconcile-plan.md)
+- [Issue #149: Bootstrap safety and reconcile hardening (cross-process concurrency, sentinel guard, UID validation, readiness semantics, diagnostics)](roadmap/issue-149-bootstrap-safety-and-reconcile-hardening-plan.md)
 
 ## Current Capabilities (v0.3.x)
 
