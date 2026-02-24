@@ -1331,30 +1331,29 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
 async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kwargs):
     """Serialized SSHMachine reconcile entrypoint for create/update events."""
     lock = _get_reconcile_lock(namespace, name)
-    waited_for_lock = lock.locked()
-    if waited_for_lock:
+    if lock.locked():
         logger.info("SSHMachine %s/%s waiting for active reconcile to finish", namespace, name)
 
     try:
         async with lock:
             _acquire_distributed_lock_or_requeue(namespace, name, "reconcile")
             try:
-                if waited_for_lock:
-                    try:
-                        latest = _read_current_sshmachine(namespace, name)
-                    except Exception as e:
-                        logger.warning(
-                            "SSHMachine %s/%s failed to refresh live state after reconcile wait: %s",
-                            namespace,
-                            name,
-                            e,
-                        )
-                    else:
-                        if latest is not None:
-                            spec = latest.get("spec", spec)
-                            status = latest.get("status", status)
-                            meta = latest.get("metadata", meta)
-                            logger.info("SSHMachine %s/%s refreshed live state after reconcile wait", namespace, name)
+                # Always refresh live object state under lock to avoid stale event races.
+                try:
+                    latest = _read_current_sshmachine(namespace, name)
+                except Exception as e:
+                    logger.warning(
+                        "SSHMachine %s/%s failed to refresh live state under reconcile lock: %s",
+                        namespace,
+                        name,
+                        e,
+                    )
+                else:
+                    if latest is not None:
+                        spec = latest.get("spec", spec)
+                        status = latest.get("status", status)
+                        meta = latest.get("metadata", meta)
+                        logger.info("SSHMachine %s/%s refreshed live state under reconcile lock", namespace, name)
 
                 await _sshmachine_reconcile_impl(
                     spec=spec,
