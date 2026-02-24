@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **sshmachine:** Support cloud-init bootstrap and timer reconcile
 - **sshmachine:** Prevent bootstrap rerun after provisioned 
+- **sshmachine:** Serialize reconcile to prevent bootstrap race
 
 ### Documentation
 
