@@ -1360,22 +1360,47 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
         async with lock:
             _acquire_distributed_lock_or_requeue(namespace, name, "reconcile")
             try:
-                # Always refresh live object state under lock to avoid stale event races.
-                try:
-                    latest = _read_current_sshmachine(namespace, name)
-                except Exception as e:
-                    logger.warning(
-                        "SSHMachine %s/%s failed to refresh live state under reconcile lock: %s",
-                        namespace,
-                        name,
-                        e,
-                    )
-                else:
-                    if latest is not None:
+                # Refresh live object state when an event UID is available to reject stale timer/handler events.
+                event_uid = meta.get("uid")
+                if event_uid:
+                    try:
+                        latest = _read_current_sshmachine(namespace, name)
+                    except Exception as e:
+                        raise kopf.TemporaryError(
+                            f"failed to refresh live SSHMachine state under reconcile lock: {e}",
+                            delay=15,
+                        ) from e
+                    else:
+                        if latest is None:
+                            logger.info(
+                                "SSHMachine %s/%s no longer exists while reconciling, skipping stale event",
+                                namespace,
+                                name,
+                            )
+                            return
+
+                        live_meta = latest.get("metadata", {})
+                        live_uid = live_meta.get("uid")
+                        if live_uid and event_uid != live_uid:
+                            logger.info(
+                                "SSHMachine %s/%s stale reconcile event detected (eventUID=%s liveUID=%s), skipping",
+                                namespace,
+                                name,
+                                event_uid,
+                                live_uid,
+                            )
+                            return
+
                         spec = latest.get("spec", spec)
                         status = latest.get("status", status)
-                        meta = latest.get("metadata", meta)
+                        meta = live_meta or meta
                         logger.info("SSHMachine %s/%s refreshed live state under reconcile lock", namespace, name)
+                else:
+                    logger.debug(
+                        "SSHMachine %s/%s reconcile event has no metadata.uid, skipping stale-event UID validation",
+                        namespace,
+                        name,
+                    )
 
                 await _sshmachine_reconcile_impl(
                     spec=spec,
