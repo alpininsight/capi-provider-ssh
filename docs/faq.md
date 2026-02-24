@@ -58,6 +58,50 @@ preKubeadmCommands:
   - iptables -F && iptables -t nat -F && iptables -t mangle -F
 ```
 
+## Reconcile and bootstrap safety: what is implemented today?
+
+### Are timer and update reconciles serialized for the same SSHMachine?
+
+**Yes (since v0.3.8).** `create`/`update` and timer reconciles are serialized by
+an in-process per-machine lock (`namespace/name`) in
+`python/capi_provider_ssh/controllers/sshmachine.py`.
+
+### Does delete cleanup run concurrently with bootstrap reconcile?
+
+**No (since v0.3.8).** Delete cleanup uses the same per-machine lock and waits
+for in-flight reconcile work before running `kubeadm reset -f`. Lock cleanup is
+deferred until the delete flow is done.
+
+### Can I run multiple controller replicas safely?
+
+**Not recommended currently.** The lock is process-local, not distributed
+across pods. Keep `python/deploy/deployment.yaml` at `replicas: 1` unless
+distributed coordination is introduced.
+
+### Why is bootstrap idempotency still discussed if races were fixed?
+
+The provider fixed reconcile races, but bootstrap script idempotency is still a
+separate hardening topic. A host-side completion sentinel is not yet injected
+automatically. Tracked in issue
+[#144](https://github.com/alpininsight/capi-provider-ssh/issues/144).
+
+### Why can SSHMachine be Ready while CAPI Machine later fails?
+
+Today, `SSHMachine` readiness is set after bootstrap script success. Extra
+post-bootstrap kubelet/node readiness gating is tracked in issue
+[#145](https://github.com/alpininsight/capi-provider-ssh/issues/145).
+
+### Do we reject stale timer callbacks after delete/recreate by UID?
+
+Not yet in all paths. UID-based stale event protection is tracked in issue
+[#146](https://github.com/alpininsight/capi-provider-ssh/issues/146).
+
+### Why do different bootstrap failures sometimes look identical?
+
+Current failure classification is coarse (`BootstrapFailed` + exit code).
+Phase/stderr-aware failure classification is tracked in issue
+[#147](https://github.com/alpininsight/capi-provider-ssh/issues/147).
+
 ## Is SSHHost health probing functional?
 
 **Yes.** The SSHHost controller runs a timer-based probe on each SSHHost:
