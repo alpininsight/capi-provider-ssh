@@ -10,6 +10,7 @@ import pytest
 from capi_provider_ssh.controllers.sshmachine import (
     _RECONCILE_LOCK_HOLDER,
     _acquire_distributed_reconcile_lock,
+    _build_reconcile_lock_holder,
     _choose_host,
     _cleanup_reconcile_lock,
     _detect_bootstrap_format,
@@ -79,6 +80,24 @@ class TestIsAlreadyProvisioned:
 
 
 class TestDistributedReconcileLock:
+    def test_build_reconcile_lock_holder_prefers_pod_name(self):
+        with (
+            patch.dict(
+                "os.environ",
+                {"POD_NAME": "provider-pod|a", "HOSTNAME": "provider-host"},
+                clear=True,
+            ),
+            patch("capi_provider_ssh.controllers.sshmachine.socket.gethostname", return_value="socket-host"),
+        ):
+            assert _build_reconcile_lock_holder() == "provider-pod_a"
+
+    def test_build_reconcile_lock_holder_uses_hostname_fallback(self):
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch("capi_provider_ssh.controllers.sshmachine.socket.gethostname", return_value="socket-host"),
+        ):
+            assert _build_reconcile_lock_holder() == "socket-host"
+
     def test_acquire_sets_annotation_when_unlocked(self):
         mock_api = MagicMock()
         mock_api.get_namespaced_custom_object.return_value = {
@@ -134,6 +153,28 @@ class TestDistributedReconcileLock:
         with patch(
             "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
             return_value=mock_api,
+        ):
+            assert _acquire_distributed_reconcile_lock("default", "m1") is True
+
+        mock_api.patch_namespaced_custom_object.assert_called_once()
+
+    def test_acquire_reclaims_lock_when_same_holder_and_not_expired(self):
+        mock_api = MagicMock()
+        mock_api.get_namespaced_custom_object.return_value = {
+            "metadata": {
+                "resourceVersion": "42",
+                "annotations": {
+                    "infrastructure.cluster.x-k8s.io/reconcile-lock": f"pod-a|{int(time.time()) + 120}",
+                },
+            },
+        }
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
+                return_value=mock_api,
+            ),
+            patch("capi_provider_ssh.controllers.sshmachine._RECONCILE_LOCK_HOLDER", "pod-a"),
         ):
             assert _acquire_distributed_reconcile_lock("default", "m1") is True
 

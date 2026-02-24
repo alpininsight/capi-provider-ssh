@@ -118,6 +118,10 @@ Environment controls:
 - `SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS` (default: `7200`)
 - `SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS` (default: `5`)
 
+Lock holder identity is stable across process restarts (`POD_NAME`/`HOSTNAME`
+based, no random suffix), so a controller restart can reclaim its own
+non-expired lock instead of waiting for TTL expiry.
+
 This protects rolling-update overlap windows where two operator instances may
 be active briefly.
 
