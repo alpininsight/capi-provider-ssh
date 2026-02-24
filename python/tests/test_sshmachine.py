@@ -16,6 +16,7 @@ from capi_provider_ssh.controllers.sshmachine import (
     _build_reconcile_lock_holder,
     _choose_host,
     _classify_bootstrap_failure,
+    _classify_kubelet_not_ready,
     _cleanup_reconcile_lock,
     _detect_bootstrap_format,
     _get_reconcile_lock,
@@ -23,6 +24,7 @@ from capi_provider_ssh.controllers.sshmachine import (
     _inject_external_etcd_into_bootstrap_data,
     _is_already_provisioned,
     _normalize_external_etcd,
+    _post_bootstrap_readiness_command,
     _prepare_bootstrap_script,
     _reconcile_lock_key,
     _release_distributed_reconcile_lock,
@@ -212,6 +214,11 @@ class TestBootstrapSentinelCommand:
         assert f"touch {BOOTSTRAP_SUCCESS_SENTINEL_PATH}" in cmd
         assert "chmod +x /tmp/bootstrap.sh && /tmp/bootstrap.sh" in cmd
 
+    def test_post_bootstrap_readiness_command_checks_kubelet(self):
+        cmd = _post_bootstrap_readiness_command()
+        assert "systemctl is-active --quiet kubelet" in cmd
+        assert "systemctl command not found on host" in cmd
+
 
 class TestBootstrapFailureClassification:
     def test_classify_detects_reset_from_stderr(self):
@@ -253,6 +260,13 @@ class TestBootstrapFailureClassification:
         assert reason == "BootstrapFailed"
         assert phase == "unknown"
         assert "Bootstrap execution failed" in message
+
+    def test_classify_kubelet_not_ready(self):
+        result = SSHResult(exit_code=32, stdout="", stderr="inactive")
+        reason, message = _classify_kubelet_not_ready(result)
+        assert reason == "KubeletNotReady"
+        assert "Bootstrap completed, but kubelet is not ready" in message
+        assert "inactive" in message
 
 
 class TestSSHMachineReconcile:
@@ -392,6 +406,10 @@ class TestSSHMachineReconcile:
             ),
         ):
             patch_obj = kopf.Patch({})
+            mock_conn.execute.side_effect = [
+                SSHResult(exit_code=0, stdout="ok", stderr=""),
+                SSHResult(exit_code=0, stdout="active", stderr=""),
+            ]
             await sshmachine_reconcile(
                 spec=sshmachine_spec,
                 status={},
@@ -404,14 +422,20 @@ class TestSSHMachineReconcile:
             assert patch_obj["spec"]["providerID"] == "ssh://100.64.0.10"
             assert patch_obj["status"]["addresses"][0]["address"] == "100.64.0.10"
             assert patch_obj["status"]["failureReason"] is None
-            executed_cmd = mock_conn.execute.call_args[0][0]
-            assert BOOTSTRAP_SUCCESS_SENTINEL_PATH in executed_cmd
-            assert BOOTSTRAP_SENTINEL_HIT_OUTPUT in executed_cmd
+            assert mock_conn.execute.await_count == 2
+            bootstrap_cmd = mock_conn.execute.call_args_list[0][0][0]
+            readiness_cmd = mock_conn.execute.call_args_list[1][0][0]
+            assert BOOTSTRAP_SUCCESS_SENTINEL_PATH in bootstrap_cmd
+            assert BOOTSTRAP_SENTINEL_HIT_OUTPUT in bootstrap_cmd
+            assert "systemctl is-active --quiet kubelet" in readiness_cmd
 
     @pytest.mark.asyncio
     async def test_bootstrap_sentinel_short_circuit_logs_skip(self, sshmachine_spec, sshmachine_meta_with_owner):
         mock_conn = AsyncMock()
-        mock_conn.execute.return_value = SSHResult(exit_code=0, stdout=f"{BOOTSTRAP_SENTINEL_HIT_OUTPUT}\n", stderr="")
+        mock_conn.execute.side_effect = [
+            SSHResult(exit_code=0, stdout=f"{BOOTSTRAP_SENTINEL_HIT_OUTPUT}\n", stderr=""),
+            SSHResult(exit_code=0, stdout="active", stderr=""),
+        ]
         mock_conn.upload = AsyncMock()
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock(return_value=False)
@@ -490,6 +514,55 @@ class TestSSHMachineReconcile:
             assert patch_obj["status"]["bootstrapDiagnostics"]["exitCode"] == 1
             assert patch_obj["status"]["bootstrapDiagnostics"]["stderrExcerpt"] == "error"
             assert "Bootstrap join phase failed" in patch_obj["status"]["failureMessage"]
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_success_with_kubelet_not_ready_sets_not_ready_status(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        mock_conn = AsyncMock()
+        mock_conn.execute.side_effect = [
+            SSHResult(exit_code=0, stdout="ok", stderr=""),
+            SSHResult(exit_code=32, stdout="", stderr="inactive"),
+        ]
+        mock_conn.upload = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value="#!/bin/bash\nkubeadm join ...",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            patch_obj = kopf.Patch({})
+            with pytest.raises(kopf.TemporaryError, match="Post-bootstrap readiness check failed"):
+                await sshmachine_reconcile(
+                    spec=sshmachine_spec,
+                    status={},
+                    name="m1",
+                    namespace="default",
+                    meta=sshmachine_meta_with_owner,
+                    patch=patch_obj,
+                )
+
+        assert patch_obj["status"]["initialization"]["provisioned"] is False
+        assert patch_obj["status"]["failureReason"] == "KubeletNotReady"
+        assert "Bootstrap completed, but kubelet is not ready" in patch_obj["status"]["failureMessage"]
+        assert patch_obj["status"]["conditions"][0]["reason"] == "KubeletNotReady"
+        assert patch_obj["status"]["conditions"][1]["type"] == "Bootstrapped"
 
     @pytest.mark.asyncio
     async def test_successful_bootstrap_with_cloud_config(self, sshmachine_spec, sshmachine_meta_with_owner):
