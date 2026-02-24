@@ -15,6 +15,9 @@ import os
 import posixpath
 import re
 import shlex
+import socket
+import time
+import uuid
 
 import kopf
 import kubernetes
@@ -31,7 +34,21 @@ DEFAULT_EXTERNAL_ETCD_KEY_FILE = "/etc/kubernetes/pki/etcd-external/client.key"
 SSHMACHINE_RECONCILE_INTERVAL = int(
     os.environ.get("SSHMACHINE_RECONCILE_INTERVAL", os.environ.get("RECONCILE_INTERVAL", "60")),
 )
+SSHMACHINE_DISTRIBUTED_LOCK_ENABLED = os.environ.get("SSHMACHINE_DISTRIBUTED_LOCK_ENABLED", "true").lower() not in {
+    "0",
+    "false",
+    "no",
+}
+SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS = int(os.environ.get("SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS", "7200"))
+SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS = int(
+    os.environ.get("SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS", "5"),
+)
+SSHMACHINE_DISTRIBUTED_LOCK_ANNOTATION = "infrastructure.cluster.x-k8s.io/reconcile-lock"
 _RECONCILE_LOCKS: dict[str, asyncio.Lock] = {}
+_RECONCILE_LOCK_HOLDER = (
+    f"{(os.environ.get('POD_NAME') or os.environ.get('HOSTNAME') or socket.gethostname()).replace('|', '_')}"
+    f":{os.getpid()}:{uuid.uuid4().hex[:8]}"
+)
 
 
 def _now_iso() -> str:
@@ -605,6 +622,188 @@ def _cleanup_reconcile_lock(namespace: str, name: str, lock: asyncio.Lock | None
     return True
 
 
+def _distributed_reconcile_lock_value(holder: str, expires_epoch: int) -> str:
+    return f"{holder}|{expires_epoch}"
+
+
+def _parse_distributed_reconcile_lock_value(value: str | None) -> tuple[str, int] | None:
+    if not value:
+        return None
+    holder, separator, raw_expires = value.rpartition("|")
+    if not separator or not holder:
+        return None
+    try:
+        expires_epoch = int(raw_expires)
+    except ValueError:
+        return None
+    return holder, expires_epoch
+
+
+def _acquire_distributed_reconcile_lock(namespace: str, name: str) -> bool:
+    """Acquire a cross-process reconcile lock via SSHMachine metadata annotation."""
+    if not SSHMACHINE_DISTRIBUTED_LOCK_ENABLED:
+        return True
+
+    api = kubernetes.client.CustomObjectsApi()
+    ttl_seconds = max(30, SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS)
+
+    for _ in range(5):
+        obj = api.get_namespaced_custom_object(
+            group=API_GROUP,
+            version=API_VERSION,
+            namespace=namespace,
+            plural="sshmachines",
+            name=name,
+        )
+        metadata = obj.get("metadata", {})
+        resource_version = metadata.get("resourceVersion")
+        if not resource_version:
+            logger.warning("SSHMachine %s/%s lock acquisition skipped: missing resourceVersion", namespace, name)
+            return False
+
+        annotations = metadata.get("annotations") or {}
+        lock_value = annotations.get(SSHMACHINE_DISTRIBUTED_LOCK_ANNOTATION)
+        parsed = _parse_distributed_reconcile_lock_value(lock_value)
+        now_epoch = int(time.time())
+        if parsed is not None:
+            current_holder, expires_epoch = parsed
+            if current_holder != _RECONCILE_LOCK_HOLDER and expires_epoch > now_epoch:
+                return False
+
+        new_lock_value = _distributed_reconcile_lock_value(_RECONCILE_LOCK_HOLDER, now_epoch + ttl_seconds)
+        body = {
+            "metadata": {
+                "resourceVersion": resource_version,
+                "annotations": {SSHMACHINE_DISTRIBUTED_LOCK_ANNOTATION: new_lock_value},
+            },
+        }
+        try:
+            api.patch_namespaced_custom_object(
+                group=API_GROUP,
+                version=API_VERSION,
+                namespace=namespace,
+                plural="sshmachines",
+                name=name,
+                body=body,
+            )
+            return True
+        except kubernetes.client.ApiException as e:
+            if e.status == 409:
+                continue
+            if e.status == 404:
+                return False
+            raise
+
+    return False
+
+
+def _release_distributed_reconcile_lock(namespace: str, name: str) -> bool:
+    """Release a cross-process reconcile lock when held by this controller instance."""
+    if not SSHMACHINE_DISTRIBUTED_LOCK_ENABLED:
+        return True
+
+    api = kubernetes.client.CustomObjectsApi()
+    for _ in range(5):
+        try:
+            obj = api.get_namespaced_custom_object(
+                group=API_GROUP,
+                version=API_VERSION,
+                namespace=namespace,
+                plural="sshmachines",
+                name=name,
+            )
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True
+            raise
+
+        metadata = obj.get("metadata", {})
+        resource_version = metadata.get("resourceVersion")
+        if not resource_version:
+            return False
+
+        annotations = metadata.get("annotations") or {}
+        lock_value = annotations.get(SSHMACHINE_DISTRIBUTED_LOCK_ANNOTATION)
+        parsed = _parse_distributed_reconcile_lock_value(lock_value)
+        if parsed is None:
+            return True
+
+        current_holder, _expires_epoch = parsed
+        if current_holder != _RECONCILE_LOCK_HOLDER:
+            return False
+
+        body = {
+            "metadata": {
+                "resourceVersion": resource_version,
+                "annotations": {SSHMACHINE_DISTRIBUTED_LOCK_ANNOTATION: None},
+            },
+        }
+        try:
+            api.patch_namespaced_custom_object(
+                group=API_GROUP,
+                version=API_VERSION,
+                namespace=namespace,
+                plural="sshmachines",
+                name=name,
+                body=body,
+            )
+            return True
+        except kubernetes.client.ApiException as e:
+            if e.status == 409:
+                continue
+            if e.status == 404:
+                return True
+            raise
+
+    return False
+
+
+def _acquire_distributed_lock_or_requeue(namespace: str, name: str, operation: str) -> None:
+    try:
+        acquired = _acquire_distributed_reconcile_lock(namespace, name)
+    except Exception as e:  # noqa: BLE001
+        raise kopf.TemporaryError(
+            f"distributed reconcile lock acquisition failed during {operation}: {e}",
+            delay=SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS,
+        ) from e
+
+    if acquired:
+        return
+
+    logger.info(
+        "SSHMachine %s/%s waiting for distributed reconcile lock during %s",
+        namespace,
+        name,
+        operation,
+    )
+    raise kopf.TemporaryError(
+        f"distributed reconcile lock is held by another controller during {operation}",
+        delay=SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS,
+    )
+
+
+def _release_distributed_lock_with_logging(namespace: str, name: str, operation: str) -> None:
+    try:
+        released = _release_distributed_reconcile_lock(namespace, name)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "SSHMachine %s/%s failed to release distributed reconcile lock during %s: %s",
+            namespace,
+            name,
+            operation,
+            e,
+        )
+        return
+
+    if not released:
+        logger.warning(
+            "SSHMachine %s/%s distributed reconcile lock ownership changed before release during %s",
+            namespace,
+            name,
+            operation,
+        )
+
+
 def _read_current_sshmachine(namespace: str, name: str) -> dict | None:
     """Read the latest SSHMachine object state from the API server."""
     api = kubernetes.client.CustomObjectsApi()
@@ -1131,32 +1330,39 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
     if waited_for_lock:
         logger.info("SSHMachine %s/%s waiting for active reconcile to finish", namespace, name)
 
-    async with lock:
-        if waited_for_lock:
+    try:
+        async with lock:
+            _acquire_distributed_lock_or_requeue(namespace, name, "reconcile")
             try:
-                latest = _read_current_sshmachine(namespace, name)
-            except Exception as e:
-                logger.warning(
-                    "SSHMachine %s/%s failed to refresh live state after reconcile wait: %s",
-                    namespace,
-                    name,
-                    e,
-                )
-            else:
-                if latest is not None:
-                    spec = latest.get("spec", spec)
-                    status = latest.get("status", status)
-                    meta = latest.get("metadata", meta)
-                    logger.info("SSHMachine %s/%s refreshed live state after reconcile wait", namespace, name)
+                if waited_for_lock:
+                    try:
+                        latest = _read_current_sshmachine(namespace, name)
+                    except Exception as e:
+                        logger.warning(
+                            "SSHMachine %s/%s failed to refresh live state after reconcile wait: %s",
+                            namespace,
+                            name,
+                            e,
+                        )
+                    else:
+                        if latest is not None:
+                            spec = latest.get("spec", spec)
+                            status = latest.get("status", status)
+                            meta = latest.get("metadata", meta)
+                            logger.info("SSHMachine %s/%s refreshed live state after reconcile wait", namespace, name)
 
-        await _sshmachine_reconcile_impl(
-            spec=spec,
-            status=status,
-            name=name,
-            namespace=namespace,
-            meta=meta,
-            patch=patch,
-        )
+                await _sshmachine_reconcile_impl(
+                    spec=spec,
+                    status=status,
+                    name=name,
+                    namespace=namespace,
+                    meta=meta,
+                    patch=patch,
+                )
+            finally:
+                _release_distributed_lock_with_logging(namespace, name, "reconcile")
+    finally:
+        _cleanup_reconcile_lock(namespace, name, lock)
 
 
 @kopf.timer(
@@ -1188,44 +1394,48 @@ async def sshmachine_delete(spec, name, namespace, **_kwargs):
 
     try:
         async with lock:
-            # Release the claimed SSHHost back to the pool
-            await _release_host(spec, name, namespace)
-
-            address = spec.get("address")
-            port = spec.get("port", 22)
-            user = spec.get("user", "root")
-            ssh_key_ref = spec.get("sshKeyRef", {})
-            secret_name = ssh_key_ref.get("name")
-            secret_key = ssh_key_ref.get("key", "value")
-
-            if not address or not secret_name:
-                logger.warning("SSHMachine %s/%s missing address or sshKeyRef, skipping cleanup", namespace, name)
-                return
-
+            _acquire_distributed_lock_or_requeue(namespace, name, "delete")
             try:
-                ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
-            except Exception as e:
-                logger.warning("SSHMachine %s/%s failed to read SSH key for cleanup: %s", namespace, name, e)
-                # Don't block finalizer removal if we can't read the key
-                return
+                # Release the claimed SSHHost back to the pool
+                await _release_host(spec, name, namespace)
 
-            try:
-                async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
-                    cleanup_cmd = "kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet"
-                    result = await conn.execute(cleanup_cmd)
-                    if result.success:
-                        logger.info("SSHMachine %s/%s cleanup succeeded on %s", namespace, name, address)
-                    else:
-                        logger.warning(
-                            "SSHMachine %s/%s cleanup failed on %s (exit=%d), allowing finalizer removal",
-                            namespace,
-                            name,
-                            address,
-                            result.exit_code,
-                        )
-            except Exception as e:
-                # Cleanup failures must not block finalizer removal
-                logger.warning("SSHMachine %s/%s SSH cleanup error on %s: %s", namespace, name, address, e)
+                address = spec.get("address")
+                port = spec.get("port", 22)
+                user = spec.get("user", "root")
+                ssh_key_ref = spec.get("sshKeyRef", {})
+                secret_name = ssh_key_ref.get("name")
+                secret_key = ssh_key_ref.get("key", "value")
+
+                if not address or not secret_name:
+                    logger.warning("SSHMachine %s/%s missing address or sshKeyRef, skipping cleanup", namespace, name)
+                    return
+
+                try:
+                    ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
+                except Exception as e:
+                    logger.warning("SSHMachine %s/%s failed to read SSH key for cleanup: %s", namespace, name, e)
+                    # Don't block finalizer removal if we can't read the key
+                    return
+
+                try:
+                    async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
+                        cleanup_cmd = "kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet"
+                        result = await conn.execute(cleanup_cmd)
+                        if result.success:
+                            logger.info("SSHMachine %s/%s cleanup succeeded on %s", namespace, name, address)
+                        else:
+                            logger.warning(
+                                "SSHMachine %s/%s cleanup failed on %s (exit=%d), allowing finalizer removal",
+                                namespace,
+                                name,
+                                address,
+                                result.exit_code,
+                            )
+                except Exception as e:
+                    # Cleanup failures must not block finalizer removal
+                    logger.warning("SSHMachine %s/%s SSH cleanup error on %s: %s", namespace, name, address, e)
+            finally:
+                _release_distributed_lock_with_logging(namespace, name, "delete")
     finally:
         _cleanup_reconcile_lock(namespace, name, lock)
 
