@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add host-side bootstrap sentinel guard
 - Skip stale SSHMachine reconcile events by UID
 - **sshmachine:** Classify bootstrap failure phases
-- **sshmachine:** Gate Ready status on post-bootstrap kubelet checks
+- **sshmachine:** Gate ready on kubelet post-bootstrap checks
 
 ### Miscellaneous
 
