@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stabilize distributed lock holder identity across restarts 
 - Re-read live SSHMachine state before bootstrap 
 - Add host-side bootstrap sentinel guard
+- Skip stale SSHMachine reconcile events by UID
 
 ### Miscellaneous
 

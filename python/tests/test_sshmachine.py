@@ -594,6 +594,7 @@ runcmd:
         sshmachine_spec,
         sshmachine_meta_with_owner,
     ):
+        event_meta = {**sshmachine_meta_with_owner, "uid": "uid-race-refresh"}
         name = "m-race-refresh"
         namespace = "default"
         lock = _get_reconcile_lock(namespace, name)
@@ -605,7 +606,7 @@ runcmd:
                 "initialization": {"provisioned": True},
                 "conditions": [{"type": "Ready", "status": "True"}],
             },
-            "metadata": sshmachine_meta_with_owner,
+            "metadata": event_meta,
         }
 
         task = None
@@ -627,7 +628,7 @@ runcmd:
                         status={},
                         name=name,
                         namespace=namespace,
-                        meta=sshmachine_meta_with_owner,
+                        meta=event_meta,
                         patch=patch_obj,
                     ),
                 )
@@ -647,13 +648,14 @@ runcmd:
         sshmachine_spec,
         sshmachine_meta_with_owner,
     ):
+        event_meta = {**sshmachine_meta_with_owner, "uid": "uid-race-no-wait"}
         latest = {
             "spec": sshmachine_spec,
             "status": {
                 "initialization": {"provisioned": True},
                 "conditions": [{"type": "Ready", "status": "True"}],
             },
-            "metadata": sshmachine_meta_with_owner,
+            "metadata": event_meta,
         }
         with (
             patch(
@@ -670,10 +672,64 @@ runcmd:
                 status={},
                 name="m-race-no-wait-flag",
                 namespace="default",
-                meta=sshmachine_meta_with_owner,
+                meta=event_meta,
                 patch=kopf.Patch({}),
             )
         read_bootstrap.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_reconcile_skips_when_live_object_missing(self, sshmachine_spec, sshmachine_meta_with_owner):
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine",
+                return_value=None,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._sshmachine_reconcile_impl",
+                new_callable=AsyncMock,
+            ) as reconcile_impl,
+        ):
+            await sshmachine_reconcile(
+                spec=sshmachine_spec,
+                status={},
+                name="m-stale-missing",
+                namespace="default",
+                meta={**sshmachine_meta_with_owner, "uid": "uid-old"},
+                patch=kopf.Patch({}),
+            )
+        reconcile_impl.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reconcile_skips_when_event_uid_differs_from_live_uid(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        latest = {
+            "spec": sshmachine_spec,
+            "status": {},
+            "metadata": {**sshmachine_meta_with_owner, "uid": "uid-live"},
+        }
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine",
+                return_value=latest,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._sshmachine_reconcile_impl",
+                new_callable=AsyncMock,
+            ) as reconcile_impl,
+        ):
+            await sshmachine_reconcile(
+                spec=sshmachine_spec,
+                status={},
+                name="m-stale-uid",
+                namespace="default",
+                meta={**sshmachine_meta_with_owner, "uid": "uid-old"},
+                patch=kopf.Patch({}),
+            )
+        reconcile_impl.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_handler_and_timer_reconcile_are_serialized(self, sshmachine_spec, sshmachine_meta_with_owner):

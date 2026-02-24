@@ -109,8 +109,9 @@ Behavior:
 
 1. Reconcile/delete handlers first acquire the in-process per-machine lock.
 2. Then they acquire the distributed lock annotation.
-3. Under lock, reconcile re-reads the live `SSHMachine` from the API server and
-   skips bootstrap when `status.initialization.provisioned=true`.
+3. Under lock, reconcile re-reads the live `SSHMachine` from the API server
+   when the event contains `metadata.uid`, and skips bootstrap when
+   `status.initialization.provisioned=true`.
 4. If another pod already holds the lock, the handler requeues with
    `kopf.TemporaryError` and does not execute bootstrap/cleanup.
 
@@ -118,6 +119,11 @@ Bootstrap execution also has a host-side sentinel guard:
 - On entry: if `/run/cluster-api/bootstrap-success.complete` exists, bootstrap
   short-circuits to success without rerunning script steps.
 - On success: provider creates that sentinel file.
+
+Reconcile also validates object identity under lock: if the live object is gone
+or the live `metadata.uid` differs from the event UID, the handler exits
+without bootstrap. This prevents stale timer/update callbacks from acting on a
+deleted/recreated `SSHMachine` with the same name.
 
 Environment controls:
 
