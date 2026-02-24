@@ -43,6 +43,8 @@ SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS = int(
     os.environ.get("SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS", "5"),
 )
 SSHMACHINE_DISTRIBUTED_LOCK_ANNOTATION = "infrastructure.cluster.x-k8s.io/reconcile-lock"
+BOOTSTRAP_SUCCESS_SENTINEL_PATH = "/run/cluster-api/bootstrap-success.complete"
+BOOTSTRAP_SENTINEL_HIT_OUTPUT = "__CAPI_PROVIDER_SSH_BOOTSTRAP_SENTINEL_HIT__"
 _RECONCILE_LOCKS: dict[str, asyncio.Lock] = {}
 
 
@@ -441,6 +443,18 @@ def _prepare_bootstrap_script(bootstrap_data: str) -> tuple[str, str]:
             raise kopf.PermanentError("bootstrap data is empty")
         return bootstrap_data, bootstrap_format
     raise kopf.PermanentError("bootstrap data format is not supported")
+
+
+def _bootstrap_execution_command() -> str:
+    """Build bootstrap command with host-side sentinel guard."""
+    sentinel_path = shlex.quote(BOOTSTRAP_SUCCESS_SENTINEL_PATH)
+    sentinel_dir = shlex.quote(posixpath.dirname(BOOTSTRAP_SUCCESS_SENTINEL_PATH))
+    sentinel_hit = shlex.quote(BOOTSTRAP_SENTINEL_HIT_OUTPUT)
+    return (
+        f"if [ -f {sentinel_path} ]; then printf '%s\\n' {sentinel_hit}; exit 0; fi && "
+        "chmod +x /tmp/bootstrap.sh && /tmp/bootstrap.sh && "
+        f"install -d -m 0755 {sentinel_dir} && touch {sentinel_path}"
+    )
 
 
 def _parse_heredoc_start(line: str) -> tuple[str, str] | None:
@@ -1281,7 +1295,7 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
             await conn.upload(bootstrap_script, "/tmp/bootstrap.sh")  # noqa: S108
 
             # Execute bootstrap
-            result = await conn.execute("chmod +x /tmp/bootstrap.sh && /tmp/bootstrap.sh")  # noqa: S108
+            result = await conn.execute(_bootstrap_execution_command())  # noqa: S108
 
             if not result.success:
                 patch.status["failureReason"] = "BootstrapFailed"
@@ -1290,6 +1304,14 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
                     _not_ready_condition("BootstrapFailed", f"Bootstrap script exited with code {result.exit_code}"),
                 ]
                 raise kopf.TemporaryError(f"Bootstrap failed (exit {result.exit_code})", delay=30)
+
+            if BOOTSTRAP_SENTINEL_HIT_OUTPUT in (result.stdout or ""):
+                logger.info(
+                    "SSHMachine %s/%s bootstrap sentinel already present on %s, skipping bootstrap script",
+                    namespace,
+                    name,
+                    address,
+                )
 
     except kopf.TemporaryError:
         raise
@@ -1423,7 +1445,10 @@ async def sshmachine_delete(spec, name, namespace, **_kwargs):
 
                 try:
                     async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
-                        cleanup_cmd = "kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet"
+                        cleanup_cmd = (
+                            "kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet "
+                            f"{shlex.quote(BOOTSTRAP_SUCCESS_SENTINEL_PATH)}"
+                        )
                         result = await conn.execute(cleanup_cmd)
                         if result.success:
                             logger.info("SSHMachine %s/%s cleanup succeeded on %s", namespace, name, address)
