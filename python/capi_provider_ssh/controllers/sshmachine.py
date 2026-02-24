@@ -34,58 +34,6 @@ SSHMACHINE_RECONCILE_INTERVAL = int(
 _RECONCILE_LOCKS: dict[str, asyncio.Lock] = {}
 
 
-def _machine_reconcile_key(namespace: str, name: str) -> str:
-    return f"{namespace}/{name}"
-
-
-def _get_reconcile_lock(namespace: str, name: str) -> asyncio.Lock:
-    """Return a shared per-machine lock for timer/handler reconcile paths."""
-    key = _machine_reconcile_key(namespace, name)
-    lock = _RECONCILE_LOCKS.get(key)
-    if lock is None:
-        lock = asyncio.Lock()
-        _RECONCILE_LOCKS[key] = lock
-    return lock
-
-
-def _cleanup_reconcile_lock(namespace: str, name: str, lock: asyncio.Lock | None = None) -> bool:
-    """Drop lock entry only when no holder/waiter remains.
-
-    Returns True when the mapping entry is removed.
-    """
-    key = _machine_reconcile_key(namespace, name)
-    current = _RECONCILE_LOCKS.get(key)
-    if current is None:
-        return False
-    if lock is not None and current is not lock:
-        return False
-    if current.locked():
-        return False
-    waiters = getattr(current, "_waiters", None)
-    if waiters:
-        return False
-    _RECONCILE_LOCKS.pop(key, None)
-    return True
-
-
-def _read_current_sshmachine_status(namespace: str, name: str) -> dict | None:
-    """Fetch live SSHMachine status to avoid acting on stale event payloads."""
-    api = kubernetes.client.CustomObjectsApi()
-    try:
-        obj = api.get_namespaced_custom_object(
-            group=API_GROUP,
-            version=API_VERSION,
-            namespace=namespace,
-            plural="sshmachines",
-            name=name,
-        )
-    except kubernetes.client.ApiException as e:
-        if e.status == 404:
-            return None
-        raise
-    return obj.get("status", {})
-
-
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.UTC).isoformat()
 
@@ -621,13 +569,57 @@ def _set_reboot_status(patch, requested_at: str, success: bool, message: str) ->
 
 
 def _is_already_provisioned(status: dict, expected_provider_id: str) -> bool:
-    """Check if machine is already provisioned with matching providerID."""
+    """Check whether bootstrap already completed for this SSHMachine."""
+    _ = expected_provider_id
     init = status.get("initialization", {})
-    if not init.get("provisioned"):
+    return bool(init.get("provisioned"))
+
+
+def _reconcile_lock_key(namespace: str, name: str) -> str:
+    return f"{namespace}/{name}"
+
+
+def _get_reconcile_lock(namespace: str, name: str) -> asyncio.Lock:
+    key = _reconcile_lock_key(namespace, name)
+    lock = _RECONCILE_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _RECONCILE_LOCKS[key] = lock
+    return lock
+
+
+def _cleanup_reconcile_lock(namespace: str, name: str, lock: asyncio.Lock | None = None) -> bool:
+    """Drop a reconcile lock mapping only when no holder/waiter remains."""
+    key = _reconcile_lock_key(namespace, name)
+    current = _RECONCILE_LOCKS.get(key)
+    if current is None:
         return False
-    # Check conditions for Ready=True
-    conditions = status.get("conditions", [])
-    return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+    if lock is not None and current is not lock:
+        return False
+    if current.locked():
+        return False
+    waiters = getattr(current, "_waiters", None)
+    if waiters:
+        return False
+    _RECONCILE_LOCKS.pop(key, None)
+    return True
+
+
+def _read_current_sshmachine(namespace: str, name: str) -> dict | None:
+    """Read the latest SSHMachine object state from the API server."""
+    api = kubernetes.client.CustomObjectsApi()
+    try:
+        return api.get_namespaced_custom_object(
+            group=API_GROUP,
+            version=API_VERSION,
+            namespace=namespace,
+            plural="sshmachines",
+            name=name,
+        )
+    except kubernetes.client.ApiException as e:
+        if e.status == 404:
+            return None
+        raise
 
 
 def _machine_consumer_ref(name: str, namespace: str) -> dict:
@@ -925,19 +917,45 @@ async def _release_host(spec: dict, name: str, namespace: str) -> None:
     logger.warning("SSHMachine %s/%s failed to release SSHHost %s after retries", namespace, name, host_ref)
 
 
-async def _bootstrap_machine(
-    *,
-    spec: dict,
-    patch: kopf.Patch,
-    namespace: str,
-    name: str,
-    machine_name: str,
-    address: str,
-    port: int,
-    user: str,
-    provider_id: str,
-) -> None:
-    """Perform bootstrap flow for a machine that is confirmed not-yet-provisioned."""
+async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch, **_kwargs):
+    """Reconcile SSHMachine -- bootstrap or verify via SSH."""
+    logger.info("SSHMachine %s/%s reconciling", namespace, name)
+
+    # Check pause
+    if spec.get("paused"):
+        logger.info("SSHMachine %s/%s is paused, skipping", namespace, name)
+        return
+
+    # Verify Machine owner
+    owner_refs = meta.get("ownerReferences")
+    if not _has_machine_owner(owner_refs):
+        logger.warning("SSHMachine %s/%s has no CAPI Machine owner, waiting", namespace, name)
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = [
+            _not_ready_condition("WaitingForMachineOwner", "No CAPI Machine ownerReference found"),
+        ]
+        return
+
+    machine_ref = _get_machine_owner_ref(owner_refs)
+    machine_name = machine_ref["name"]
+
+    # Host selection: claim an SSHHost if using hostSelector mode
+    await _choose_host(spec, name, namespace, patch)
+
+    # At this point, address must be set (either direct or from host claim)
+    address = patch.spec.get("address", spec.get("address"))
+    if not address:
+        raise kopf.PermanentError("address is not set after host selection")
+
+    port = spec.get("port", 22)
+    user = patch.spec.get("user", spec.get("user", "root"))
+    provider_id = f"ssh://{address}"
+
+    # Idempotency: skip if already provisioned
+    if _is_already_provisioned(status, provider_id):
+        logger.info("SSHMachine %s/%s already provisioned (providerID=%s)", namespace, name, provider_id)
+        return
+
     # Wait for bootstrap data
     bootstrap_data = await _read_bootstrap_data(namespace, machine_name)
     if not bootstrap_data:
@@ -1107,85 +1125,37 @@ async def _bootstrap_machine(
 @kopf.on.create(API_GROUP, API_VERSION, "sshmachines")
 @kopf.on.update(API_GROUP, API_VERSION, "sshmachines")
 async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kwargs):
-    """Reconcile SSHMachine -- bootstrap or verify via SSH."""
-    logger.info("SSHMachine %s/%s reconciling", namespace, name)
-
-    # Check pause
-    if spec.get("paused"):
-        logger.info("SSHMachine %s/%s is paused, skipping", namespace, name)
-        return
-
-    # Verify Machine owner
-    owner_refs = meta.get("ownerReferences")
-    if not _has_machine_owner(owner_refs):
-        logger.warning("SSHMachine %s/%s has no CAPI Machine owner, waiting", namespace, name)
-        patch.status["initialization"] = {"provisioned": False}
-        patch.status["conditions"] = [
-            _not_ready_condition("WaitingForMachineOwner", "No CAPI Machine ownerReference found"),
-        ]
-        return
-
-    machine_ref = _get_machine_owner_ref(owner_refs)
-    machine_name = machine_ref["name"]
-
-    # Host selection: claim an SSHHost if using hostSelector mode
-    await _choose_host(spec, name, namespace, patch)
-
-    # At this point, address must be set (either direct or from host claim)
-    address = patch.spec.get("address", spec.get("address"))
-    if not address:
-        raise kopf.PermanentError("address is not set after host selection")
-
-    port = spec.get("port", 22)
-    user = patch.spec.get("user", spec.get("user", "root"))
-    provider_id = f"ssh://{address}"
-
+    """Serialized SSHMachine reconcile entrypoint for create/update events."""
     lock = _get_reconcile_lock(namespace, name)
-    if lock.locked():
-        logger.info("SSHMachine %s/%s waiting for in-flight reconcile to finish", namespace, name)
+    waited_for_lock = lock.locked()
+    if waited_for_lock:
+        logger.info("SSHMachine %s/%s waiting for active reconcile to finish", namespace, name)
 
     async with lock:
-        # Idempotency on local event payload.
-        if _is_already_provisioned(status, provider_id):
-            logger.info("SSHMachine %s/%s already provisioned (providerID=%s)", namespace, name, provider_id)
-            return
+        if waited_for_lock:
+            try:
+                latest = _read_current_sshmachine(namespace, name)
+            except Exception as e:
+                logger.warning(
+                    "SSHMachine %s/%s failed to refresh live state after reconcile wait: %s",
+                    namespace,
+                    name,
+                    e,
+                )
+            else:
+                if latest is not None:
+                    spec = latest.get("spec", spec)
+                    status = latest.get("status", status)
+                    meta = latest.get("metadata", meta)
+                    logger.info("SSHMachine %s/%s refreshed live state after reconcile wait", namespace, name)
 
-        # Idempotency on live object state to avoid stale handler/timer races.
-        try:
-            live_status = _read_current_sshmachine_status(namespace, name)
-        except kubernetes.client.ApiException as e:
-            raise kopf.TemporaryError(
-                f"Failed to read live SSHMachine status (api={e.status})",
-                delay=5,
-            ) from e
-        except Exception as e:
-            raise kopf.TemporaryError(
-                f"Failed to read live SSHMachine status: {e}",
-                delay=5,
-            ) from e
-
-        if live_status is None:
-            logger.info("SSHMachine %s/%s no longer exists while reconciling", namespace, name)
-            return
-        if _is_already_provisioned(live_status, provider_id):
-            logger.info(
-                "SSHMachine %s/%s already provisioned in live status (providerID=%s)",
-                namespace,
-                name,
-                provider_id,
-            )
-            return
-
-        await _bootstrap_machine(
+        await _sshmachine_reconcile_impl(
             spec=spec,
-            patch=patch,
-            namespace=namespace,
+            status=status,
             name=name,
-            machine_name=machine_name,
-            address=address,
-            port=port,
-            user=user,
-            provider_id=provider_id,
+            namespace=namespace,
+            meta=meta,
+            patch=patch,
         )
 
 

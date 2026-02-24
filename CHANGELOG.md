@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 
 - **sshmachine:** Support cloud-init bootstrap and timer reconcile
+- **sshmachine:** Prevent bootstrap rerun after provisioned 
+- **sshmachine:** Serialize reconcile to prevent bootstrap race
+- **image:** Run provider module via kopf -m to avoid import errors
+
+### Documentation
+
+- **governance:** Add ITSM and ISO 20000 continuity guidance
+
+### Testing
+
+- Enforce deterministic integration teardown cleanup
 
 ## [0.3.1] - 2026-02-23
 

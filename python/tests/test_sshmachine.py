@@ -14,9 +14,9 @@ from capi_provider_ssh.controllers.sshmachine import (
     _has_machine_owner,
     _inject_external_etcd_into_bootstrap_data,
     _is_already_provisioned,
-    _machine_reconcile_key,
     _normalize_external_etcd,
     _prepare_bootstrap_script,
+    _reconcile_lock_key,
     _release_host,
     sshmachine_delete,
     sshmachine_reboot,
@@ -24,16 +24,6 @@ from capi_provider_ssh.controllers.sshmachine import (
     sshmachine_reconcile_timer,
 )
 from capi_provider_ssh.ssh import SSHResult
-
-
-@pytest.fixture(autouse=True)
-def _stub_live_sshmachine_status():
-    """Keep unit tests deterministic by stubbing live status refresh."""
-    with patch(
-        "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine_status",
-        return_value={},
-    ):
-        yield
 
 
 class TestHasMachineOwner:
@@ -64,7 +54,14 @@ class TestIsAlreadyProvisioned:
             "initialization": {"provisioned": True},
             "conditions": [{"type": "Ready", "status": "False"}],
         }
-        assert _is_already_provisioned(status, "ssh://10.0.0.1") is False
+        assert _is_already_provisioned(status, "ssh://10.0.0.1") is True
+
+    def test_provisioned_without_ready_condition(self):
+        status = {
+            "initialization": {"provisioned": True},
+            "conditions": [],
+        }
+        assert _is_already_provisioned(status, "ssh://10.0.0.1") is True
 
 
 class TestSSHMachineReconcile:
@@ -115,36 +112,26 @@ class TestSSHMachineReconcile:
         assert "initialization" not in patch_obj.get("status", {})
 
     @pytest.mark.asyncio
-    async def test_stale_event_status_skips_when_live_status_is_provisioned(
-        self,
-        sshmachine_spec,
-        sshmachine_meta_with_owner,
-    ):
-        live_status = {
+    async def test_already_provisioned_skips_when_ready_false(self, sshmachine_spec, sshmachine_meta_with_owner):
+        status = {
             "initialization": {"provisioned": True},
-            "conditions": [{"type": "Ready", "status": "True"}],
+            "conditions": [{"type": "Ready", "status": "False"}],
         }
-        with (
-            patch(
-                "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine_status",
-                return_value=live_status,
-            ),
-            patch(
-                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
-                new_callable=AsyncMock,
-            ) as read_bootstrap,
-        ):
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+            new_callable=AsyncMock,
+        ) as read_bootstrap:
             patch_obj = kopf.Patch({})
             await sshmachine_reconcile(
                 spec=sshmachine_spec,
-                status={},
+                status=status,
                 name="m1",
                 namespace="default",
                 meta=sshmachine_meta_with_owner,
                 patch=patch_obj,
             )
-
         read_bootstrap.assert_not_called()
+        assert "initialization" not in patch_obj.get("status", {})
 
     @pytest.mark.asyncio
     async def test_waiting_for_bootstrap_data(self, sshmachine_spec, sshmachine_meta_with_owner):
@@ -387,6 +374,126 @@ runcmd:
             )
         read_bootstrap.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_timer_skips_provisioned_machine_when_ready_false(self, sshmachine_spec, sshmachine_meta_with_owner):
+        status = {
+            "initialization": {"provisioned": True},
+            "conditions": [{"type": "Ready", "status": "False"}],
+        }
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+            new_callable=AsyncMock,
+        ) as read_bootstrap:
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile_timer(
+                spec=sshmachine_spec,
+                status=status,
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+        read_bootstrap.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_waiting_reconcile_refreshes_live_state_and_skips_bootstrap(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        name = "m-race-refresh"
+        namespace = "default"
+        lock = _get_reconcile_lock(namespace, name)
+        await lock.acquire()
+
+        latest = {
+            "spec": sshmachine_spec,
+            "status": {
+                "initialization": {"provisioned": True},
+                "conditions": [{"type": "Ready", "status": "True"}],
+            },
+            "metadata": sshmachine_meta_with_owner,
+        }
+
+        task = None
+        try:
+            with (
+                patch(
+                    "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine",
+                    return_value=latest,
+                ),
+                patch(
+                    "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                    new_callable=AsyncMock,
+                ) as read_bootstrap,
+            ):
+                patch_obj = kopf.Patch({})
+                task = asyncio.create_task(
+                    sshmachine_reconcile(
+                        spec=sshmachine_spec,
+                        status={},
+                        name=name,
+                        namespace=namespace,
+                        meta=sshmachine_meta_with_owner,
+                        patch=patch_obj,
+                    ),
+                )
+                await asyncio.sleep(0)
+                lock.release()
+                await task
+                read_bootstrap.assert_not_called()
+        finally:
+            if task is not None and not task.done():
+                await task
+            if lock.locked():
+                lock.release()
+
+    @pytest.mark.asyncio
+    async def test_handler_and_timer_reconcile_are_serialized(self, sshmachine_spec, sshmachine_meta_with_owner):
+        name = "m-race-serialized"
+        namespace = "default"
+        active = 0
+        max_active = 0
+
+        async def fake_impl(**_kwargs):
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.05)
+            active -= 1
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine",
+                return_value=None,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._sshmachine_reconcile_impl",
+                new=AsyncMock(side_effect=fake_impl),
+            ) as reconcile_impl,
+        ):
+            await asyncio.gather(
+                sshmachine_reconcile(
+                    spec=sshmachine_spec,
+                    status={},
+                    name=name,
+                    namespace=namespace,
+                    meta=sshmachine_meta_with_owner,
+                    patch=kopf.Patch({}),
+                ),
+                sshmachine_reconcile_timer(
+                    spec=sshmachine_spec,
+                    status={},
+                    name=name,
+                    namespace=namespace,
+                    meta=sshmachine_meta_with_owner,
+                    patch=kopf.Patch({}),
+                ),
+            )
+
+        assert reconcile_impl.await_count == 2
+        assert max_active == 1
+
 
 class TestSSHMachineDryRun:
     @pytest.mark.asyncio
@@ -613,22 +720,19 @@ class TestSSHMachineDelete:
     @pytest.mark.asyncio
     async def test_reconcile_lock_cleanup_keeps_mapping_when_waiter_exists(self):
         lock = _get_reconcile_lock("default", "m-lock")
-        key = _machine_reconcile_key("default", "m-lock")
+        key = _reconcile_lock_key("default", "m-lock")
 
         await lock.acquire()
         waiter = asyncio.create_task(lock.acquire())
         await asyncio.sleep(0)
 
-        # Lock is still in use; cleanup must not remove mapping.
         assert _cleanup_reconcile_lock("default", "m-lock", lock) is False
-        assert _machine_reconcile_key("default", "m-lock") == key
+        assert _reconcile_lock_key("default", "m-lock") == key
 
         lock.release()
         await waiter
-        # Release waiter-acquired lock too.
         lock.release()
 
-        # Now no holder/waiter remains, cleanup can drop the mapping.
         assert _cleanup_reconcile_lock("default", "m-lock", lock) is True
 
 
