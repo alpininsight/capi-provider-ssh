@@ -58,6 +58,40 @@ preKubeadmCommands:
   - iptables -F && iptables -t nat -F && iptables -t mangle -F
 ```
 
+## Reconcile and bootstrap safety: what is implemented vs pending?
+
+### Is timer/update reconcile serialized for one SSHMachine?
+
+**Yes (v0.3.8).** Reconcile paths use an in-process per-machine lock.
+
+### Does delete cleanup still race with in-flight reconcile?
+
+**No (v0.3.8).** Delete waits on the same per-machine lock and performs lock
+cleanup only after delete flow completion.
+
+### Can multiple controller pods still cause duplicate bootstrap?
+
+**Potentially yes.** Current lock is process-local. Cross-process coordination
+hardening is tracked in [#149](https://github.com/alpininsight/capi-provider-ssh/issues/149).
+
+### Is host-level bootstrap idempotency guard implemented?
+
+**Not yet.** Sentinel guard proposal is tracked in [#144](https://github.com/alpininsight/capi-provider-ssh/issues/144).
+
+### Are stale timer callbacks rejected by UID?
+
+**Not fully yet.** UID validation follow-up is tracked in [#146](https://github.com/alpininsight/capi-provider-ssh/issues/146).
+
+### Why can SSHMachine look ready while Machine later fails?
+
+Readiness is currently tied to bootstrap success path; post-bootstrap readiness
+gating improvements are tracked in [#145](https://github.com/alpininsight/capi-provider-ssh/issues/145).
+
+### Why do different bootstrap failures look similar?
+
+Current classification is coarse (`BootstrapFailed` + exit code). Detailed
+phase-aware diagnostics are tracked in [#147](https://github.com/alpininsight/capi-provider-ssh/issues/147).
+
 ## Is SSHHost health probing functional?
 
 **Yes.** The SSHHost controller runs a timer-based probe on each SSHHost:
