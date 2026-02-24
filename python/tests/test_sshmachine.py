@@ -22,6 +22,16 @@ from capi_provider_ssh.controllers.sshmachine import (
 from capi_provider_ssh.ssh import SSHResult
 
 
+@pytest.fixture(autouse=True)
+def _stub_live_sshmachine_status():
+    """Keep unit tests deterministic by stubbing live status refresh."""
+    with patch(
+        "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine_status",
+        return_value={},
+    ):
+        yield
+
+
 class TestHasMachineOwner:
     def test_with_machine_owner(self, sshmachine_meta_with_owner):
         assert _has_machine_owner(sshmachine_meta_with_owner["ownerReferences"]) is True
@@ -99,6 +109,38 @@ class TestSSHMachineReconcile:
         )
         # Should not modify status (idempotent)
         assert "initialization" not in patch_obj.get("status", {})
+
+    @pytest.mark.asyncio
+    async def test_stale_event_status_skips_when_live_status_is_provisioned(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        live_status = {
+            "initialization": {"provisioned": True},
+            "conditions": [{"type": "Ready", "status": "True"}],
+        }
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_current_sshmachine_status",
+                return_value=live_status,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+            ) as read_bootstrap,
+        ):
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=sshmachine_spec,
+                status={},
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+
+        read_bootstrap.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_waiting_for_bootstrap_data(self, sshmachine_spec, sshmachine_meta_with_owner):
