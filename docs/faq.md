@@ -114,6 +114,11 @@ Behavior:
 4. If another pod already holds the lock, the handler requeues with
    `kopf.TemporaryError` and does not execute bootstrap/cleanup.
 
+Bootstrap execution also has a host-side sentinel guard:
+- On entry: if `/run/cluster-api/bootstrap-success.complete` exists, bootstrap
+  short-circuits to success without rerunning script steps.
+- On success: provider creates that sentinel file.
+
 Environment controls:
 
 - `SSHMACHINE_DISTRIBUTED_LOCK_ENABLED` (default: `true`)
