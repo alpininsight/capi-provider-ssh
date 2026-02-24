@@ -7,6 +7,7 @@ This is the core controller of the provider. It handles:
 - Status management (providerID, addresses, conditions)
 """
 
+import asyncio
 import base64
 import datetime
 import logging
@@ -30,6 +31,7 @@ DEFAULT_EXTERNAL_ETCD_KEY_FILE = "/etc/kubernetes/pki/etcd-external/client.key"
 SSHMACHINE_RECONCILE_INTERVAL = int(
     os.environ.get("SSHMACHINE_RECONCILE_INTERVAL", os.environ.get("RECONCILE_INTERVAL", "60")),
 )
+_RECONCILE_LOCKS: dict[str, asyncio.Lock] = {}
 
 
 def _now_iso() -> str:
@@ -573,6 +575,36 @@ def _is_already_provisioned(status: dict, expected_provider_id: str) -> bool:
     return bool(init.get("provisioned"))
 
 
+def _reconcile_lock_key(namespace: str, name: str) -> str:
+    return f"{namespace}/{name}"
+
+
+def _get_reconcile_lock(namespace: str, name: str) -> asyncio.Lock:
+    key = _reconcile_lock_key(namespace, name)
+    lock = _RECONCILE_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _RECONCILE_LOCKS[key] = lock
+    return lock
+
+
+def _read_current_sshmachine(namespace: str, name: str) -> dict | None:
+    """Read the latest SSHMachine object state from the API server."""
+    api = kubernetes.client.CustomObjectsApi()
+    try:
+        return api.get_namespaced_custom_object(
+            group=API_GROUP,
+            version=API_VERSION,
+            namespace=namespace,
+            plural="sshmachines",
+            name=name,
+        )
+    except kubernetes.client.ApiException as e:
+        if e.status == 404:
+            return None
+        raise
+
+
 def _machine_consumer_ref(name: str, namespace: str) -> dict:
     """Build consumerRef payload for an SSHMachine."""
     return {
@@ -868,9 +900,7 @@ async def _release_host(spec: dict, name: str, namespace: str) -> None:
     logger.warning("SSHMachine %s/%s failed to release SSHHost %s after retries", namespace, name, host_ref)
 
 
-@kopf.on.create(API_GROUP, API_VERSION, "sshmachines")
-@kopf.on.update(API_GROUP, API_VERSION, "sshmachines")
-async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kwargs):
+async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch, **_kwargs):
     """Reconcile SSHMachine -- bootstrap or verify via SSH."""
     logger.info("SSHMachine %s/%s reconciling", namespace, name)
 
@@ -1073,6 +1103,43 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
     patch.status["failureMessage"] = None
 
     logger.info("SSHMachine %s/%s provisioned: providerID=%s", namespace, name, provider_id)
+
+
+@kopf.on.create(API_GROUP, API_VERSION, "sshmachines")
+@kopf.on.update(API_GROUP, API_VERSION, "sshmachines")
+async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kwargs):
+    """Serialized SSHMachine reconcile entrypoint for create/update events."""
+    lock = _get_reconcile_lock(namespace, name)
+    waited_for_lock = lock.locked()
+    if waited_for_lock:
+        logger.info("SSHMachine %s/%s waiting for active reconcile to finish", namespace, name)
+
+    async with lock:
+        if waited_for_lock:
+            try:
+                latest = _read_current_sshmachine(namespace, name)
+            except Exception as e:
+                logger.warning(
+                    "SSHMachine %s/%s failed to refresh live state after reconcile wait: %s",
+                    namespace,
+                    name,
+                    e,
+                )
+            else:
+                if latest is not None:
+                    spec = latest.get("spec", spec)
+                    status = latest.get("status", status)
+                    meta = latest.get("metadata", meta)
+                    logger.info("SSHMachine %s/%s refreshed live state after reconcile wait", namespace, name)
+
+        await _sshmachine_reconcile_impl(
+            spec=spec,
+            status=status,
+            name=name,
+            namespace=namespace,
+            meta=meta,
+            patch=patch,
+        )
 
 
 @kopf.timer(
