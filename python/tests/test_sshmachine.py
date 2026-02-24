@@ -15,6 +15,7 @@ from capi_provider_ssh.controllers.sshmachine import (
     _bootstrap_execution_command,
     _build_reconcile_lock_holder,
     _choose_host,
+    _classify_bootstrap_failure,
     _cleanup_reconcile_lock,
     _detect_bootstrap_format,
     _get_reconcile_lock,
@@ -210,6 +211,48 @@ class TestBootstrapSentinelCommand:
         assert BOOTSTRAP_SENTINEL_HIT_OUTPUT in cmd
         assert f"touch {BOOTSTRAP_SUCCESS_SENTINEL_PATH}" in cmd
         assert "chmod +x /tmp/bootstrap.sh && /tmp/bootstrap.sh" in cmd
+
+
+class TestBootstrapFailureClassification:
+    def test_classify_detects_reset_from_stderr(self):
+        result = SSHResult(exit_code=2, stdout="", stderr="[reset] failed to reset node")
+        reason, phase, message, stderr_excerpt = _classify_bootstrap_failure(result, "#!/bin/bash\necho bootstrap")
+        assert reason == "BootstrapResetFailed"
+        assert phase == "reset"
+        assert "exit 2" in message
+        assert "failed to reset node" in stderr_excerpt
+
+    def test_classify_falls_back_to_bootstrap_script_phase(self):
+        result = SSHResult(exit_code=1, stdout="", stderr="command failed")
+        reason, phase, message, stderr_excerpt = _classify_bootstrap_failure(
+            result, "#!/bin/bash\nkubeadm join 10.0.0.1:6443"
+        )
+        assert reason == "BootstrapJoinFailed"
+        assert phase == "join"
+        assert "join phase" in message
+        assert stderr_excerpt == "command failed"
+
+    def test_classify_redacts_sensitive_kubeadm_flags(self):
+        stderr = (
+            "kubeadm join 10.0.0.1:6443 "
+            "--token abc.def "
+            "--discovery-token-ca-cert-hash sha256:deadbeef "
+            "--certificate-key 0123456789abcdef"
+        )
+        result = SSHResult(exit_code=1, stdout="", stderr=stderr)
+        _, _, message, stderr_excerpt = _classify_bootstrap_failure(result, "#!/bin/bash\nkubeadm join 10.0.0.1:6443")
+        assert "[REDACTED]" in message
+        assert "abc.def" not in message
+        assert "sha256:deadbeef" not in message
+        assert "0123456789abcdef" not in message
+        assert "[REDACTED]" in stderr_excerpt
+
+    def test_classify_uses_generic_reason_when_phase_unknown(self):
+        result = SSHResult(exit_code=3, stdout="", stderr="bootstrap failed without phase markers")
+        reason, phase, message, _ = _classify_bootstrap_failure(result, "#!/bin/bash\necho bootstrap")
+        assert reason == "BootstrapFailed"
+        assert phase == "unknown"
+        assert "Bootstrap execution failed" in message
 
 
 class TestSSHMachineReconcile:
@@ -442,7 +485,11 @@ class TestSSHMachineReconcile:
                     meta=sshmachine_meta_with_owner,
                     patch=patch_obj,
                 )
-            assert patch_obj["status"]["failureReason"] == "BootstrapFailed"
+            assert patch_obj["status"]["failureReason"] == "BootstrapJoinFailed"
+            assert patch_obj["status"]["bootstrapDiagnostics"]["phase"] == "join"
+            assert patch_obj["status"]["bootstrapDiagnostics"]["exitCode"] == 1
+            assert patch_obj["status"]["bootstrapDiagnostics"]["stderrExcerpt"] == "error"
+            assert "Bootstrap join phase failed" in patch_obj["status"]["failureMessage"]
 
     @pytest.mark.asyncio
     async def test_successful_bootstrap_with_cloud_config(self, sshmachine_spec, sshmachine_meta_with_owner):

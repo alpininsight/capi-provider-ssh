@@ -23,7 +23,7 @@ import kubernetes
 import yaml
 
 from capi_provider_ssh import API_GROUP, API_VERSION
-from capi_provider_ssh.ssh import SSHClient
+from capi_provider_ssh.ssh import SSHClient, SSHResult
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,18 @@ SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS = int(
 SSHMACHINE_DISTRIBUTED_LOCK_ANNOTATION = "infrastructure.cluster.x-k8s.io/reconcile-lock"
 BOOTSTRAP_SUCCESS_SENTINEL_PATH = "/run/cluster-api/bootstrap-success.complete"
 BOOTSTRAP_SENTINEL_HIT_OUTPUT = "__CAPI_PROVIDER_SSH_BOOTSTRAP_SENTINEL_HIT__"
+BOOTSTRAP_PHASE_REASON_MAP = {
+    "reset": "BootstrapResetFailed",
+    "init": "BootstrapInitFailed",
+    "join": "BootstrapJoinFailed",
+}
+BOOTSTRAP_DIAGNOSTIC_MAX_EXCERPT = 240
+BOOTSTRAP_DIAGNOSTIC_REDACTIONS = (
+    (re.compile(r"(?i)(--token(?:=|\s+))\S+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(--certificate-key(?:=|\s+))\S+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(--discovery-token-ca-cert-hash(?:=|\s+))\S+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)\b(token|certificate-key|discovery-token-ca-cert-hash)\b\s*[:=]\s*\S+"), r"\1=[REDACTED]"),
+)
 _RECONCILE_LOCKS: dict[str, asyncio.Lock] = {}
 
 
@@ -455,6 +467,77 @@ def _bootstrap_execution_command() -> str:
         "chmod +x /tmp/bootstrap.sh && /tmp/bootstrap.sh && "
         f"install -d -m 0755 {sentinel_dir} && touch {sentinel_path}"
     )
+
+
+def _sanitize_bootstrap_diagnostic_text(text: str) -> str:
+    """Redact sensitive kubeadm values before storing in status."""
+    sanitized = text
+    for pattern, replacement in BOOTSTRAP_DIAGNOSTIC_REDACTIONS:
+        sanitized = pattern.sub(replacement, sanitized)
+    return re.sub(r"\s+", " ", sanitized).strip()
+
+
+def _excerpt_bootstrap_output(result: SSHResult) -> str:
+    """Return a compact, sanitized stderr/stdout excerpt for diagnostics."""
+    for chunk in (result.stderr, result.stdout):
+        excerpt = _sanitize_bootstrap_diagnostic_text(chunk or "")
+        if not excerpt:
+            continue
+        if len(excerpt) <= BOOTSTRAP_DIAGNOSTIC_MAX_EXCERPT:
+            return excerpt
+        return f"{excerpt[: BOOTSTRAP_DIAGNOSTIC_MAX_EXCERPT - 3].rstrip()}..."
+    return ""
+
+
+def _detect_bootstrap_failure_phase(stderr: str, stdout: str, bootstrap_script: str) -> str:
+    """Infer which bootstrap phase failed from output signatures and script content."""
+    combined_output = "\n".join(part for part in (stderr, stdout) if part)
+    phase_signatures = (
+        ("reset", (r"\bkubeadm\s+reset\b", r"\[reset\]", r"\bfailed\s+to\s+reset\b")),
+        ("init", (r"\bkubeadm\s+init\b", r"\[init\]", r"\binitconfiguration\b", r"\bcontrol-plane\b")),
+        ("join", (r"\bkubeadm\s+join\b", r"\[join\]", r"\bdiscovery-token\b", r"\bnode\s+join\b")),
+    )
+    for phase, signatures in phase_signatures:
+        if any(re.search(signature, combined_output, flags=re.IGNORECASE) for signature in signatures):
+            return phase
+
+    script_lower = bootstrap_script.lower()
+    has_init = "kubeadm init" in script_lower
+    has_join = "kubeadm join" in script_lower
+    has_reset = "kubeadm reset" in script_lower
+
+    # Fallback prefers the primary operation over optional cleanup commands.
+    if has_init and not has_join:
+        return "init"
+    if has_join and not has_init:
+        return "join"
+    if has_reset and not (has_init or has_join):
+        return "reset"
+    if has_init:
+        return "init"
+    if has_join:
+        return "join"
+    if has_reset:
+        return "reset"
+    return "unknown"
+
+
+def _classify_bootstrap_failure(result: SSHResult, bootstrap_script: str) -> tuple[str, str, str, str]:
+    """Classify bootstrap failures and build safe status diagnostics."""
+    phase = _detect_bootstrap_failure_phase(result.stderr, result.stdout, bootstrap_script)
+    reason = BOOTSTRAP_PHASE_REASON_MAP.get(phase, "BootstrapFailed")
+    stderr_excerpt = _excerpt_bootstrap_output(result)
+    phase_label = {
+        "reset": "reset phase",
+        "init": "init phase",
+        "join": "join phase",
+    }.get(phase, "execution")
+    failure_message = f"Bootstrap {phase_label} failed (exit {result.exit_code})"
+    if stderr_excerpt:
+        failure_message = f"{failure_message}: {stderr_excerpt}"
+    else:
+        failure_message = f"{failure_message}. Inspect kubeadm and cloud-init logs on the host."
+    return reason, phase, failure_message, stderr_excerpt
 
 
 def _parse_heredoc_start(line: str) -> tuple[str, str] | None:
@@ -1174,6 +1257,9 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
         logger.info("SSHMachine %s/%s already provisioned (providerID=%s)", namespace, name, provider_id)
         return
 
+    # Keep diagnostics current and prevent stale bootstrap failure details.
+    patch.status["bootstrapDiagnostics"] = None
+
     # Wait for bootstrap data
     bootstrap_data = await _read_bootstrap_data(namespace, machine_name)
     if not bootstrap_data:
@@ -1265,6 +1351,7 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
                 f"Dry-run passed: SSH to {address}, bootstrap data ready",
             ),
         ]
+        patch.status["bootstrapDiagnostics"] = None
         patch.status["failureReason"] = None
         patch.status["failureMessage"] = None
         logger.info("SSHMachine %s/%s dry-run passed", namespace, name)
@@ -1298,12 +1385,24 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
             result = await conn.execute(_bootstrap_execution_command())  # noqa: S108
 
             if not result.success:
-                patch.status["failureReason"] = "BootstrapFailed"
-                patch.status["failureMessage"] = f"Bootstrap script exited {result.exit_code}"
+                failure_reason, failure_phase, failure_message, stderr_excerpt = _classify_bootstrap_failure(
+                    result,
+                    bootstrap_script,
+                )
+                patch.status["failureReason"] = failure_reason
+                patch.status["failureMessage"] = failure_message
+                patch.status["bootstrapDiagnostics"] = {
+                    "phase": failure_phase,
+                    "exitCode": result.exit_code,
+                    "stderrExcerpt": stderr_excerpt,
+                }
                 patch.status["conditions"] = [
-                    _not_ready_condition("BootstrapFailed", f"Bootstrap script exited with code {result.exit_code}"),
+                    _not_ready_condition(failure_reason, failure_message),
                 ]
-                raise kopf.TemporaryError(f"Bootstrap failed (exit {result.exit_code})", delay=30)
+                raise kopf.TemporaryError(
+                    f"Bootstrap failed ({failure_reason}, exit {result.exit_code})",
+                    delay=30,
+                )
 
             if BOOTSTRAP_SENTINEL_HIT_OUTPUT in (result.stdout or ""):
                 logger.info(
@@ -1342,6 +1441,7 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
         _ready_condition(f"Machine {address} provisioned with providerID {provider_id}"),
     ]
     # Clear any previous failure state
+    patch.status["bootstrapDiagnostics"] = None
     patch.status["failureReason"] = None
     patch.status["failureMessage"] = None
 
