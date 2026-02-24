@@ -24,6 +24,12 @@ def test_docker_entrypoint_uses_kopf_directly() -> None:
     assert "--liveness=http://0.0.0.0:8080/healthz" in entrypoint, (
         "Regression guard: probes target /healthz on 8080, so Kopf liveness must be enabled in ENTRYPOINT."
     )
+    assert '"-m", "capi_provider_ssh.main"' in entrypoint, (
+        "Regression guard: ENTRYPOINT must run module mode to avoid brittle script-path imports."
+    )
+    assert "capi_provider_ssh/main.py" not in entrypoint, (
+        "Regression guard: do not execute package module via file path in ENTRYPOINT."
+    )
 
 
 def test_dockerfile_exports_venv_bin_on_path() -> None:
