@@ -50,7 +50,14 @@ class TestIsAlreadyProvisioned:
             "initialization": {"provisioned": True},
             "conditions": [{"type": "Ready", "status": "False"}],
         }
-        assert _is_already_provisioned(status, "ssh://10.0.0.1") is False
+        assert _is_already_provisioned(status, "ssh://10.0.0.1") is True
+
+    def test_provisioned_without_ready_condition(self):
+        status = {
+            "initialization": {"provisioned": True},
+            "conditions": [],
+        }
+        assert _is_already_provisioned(status, "ssh://10.0.0.1") is True
 
 
 class TestSSHMachineReconcile:
@@ -98,6 +105,28 @@ class TestSSHMachineReconcile:
             patch=patch_obj,
         )
         # Should not modify status (idempotent)
+        assert "initialization" not in patch_obj.get("status", {})
+
+    @pytest.mark.asyncio
+    async def test_already_provisioned_skips_when_ready_false(self, sshmachine_spec, sshmachine_meta_with_owner):
+        status = {
+            "initialization": {"provisioned": True},
+            "conditions": [{"type": "Ready", "status": "False"}],
+        }
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+            new_callable=AsyncMock,
+        ) as read_bootstrap:
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=sshmachine_spec,
+                status=status,
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+        read_bootstrap.assert_not_called()
         assert "initialization" not in patch_obj.get("status", {})
 
     @pytest.mark.asyncio
@@ -325,6 +354,27 @@ runcmd:
         status = {
             "initialization": {"provisioned": True},
             "conditions": [{"type": "Ready", "status": "True"}],
+        }
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+            new_callable=AsyncMock,
+        ) as read_bootstrap:
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile_timer(
+                spec=sshmachine_spec,
+                status=status,
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+        read_bootstrap.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_timer_skips_provisioned_machine_when_ready_false(self, sshmachine_spec, sshmachine_meta_with_owner):
+        status = {
+            "initialization": {"provisioned": True},
+            "conditions": [{"type": "Ready", "status": "False"}],
         }
         with patch(
             "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",

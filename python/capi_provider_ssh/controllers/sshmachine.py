@@ -567,13 +567,10 @@ def _set_reboot_status(patch, requested_at: str, success: bool, message: str) ->
 
 
 def _is_already_provisioned(status: dict, expected_provider_id: str) -> bool:
-    """Check if machine is already provisioned with matching providerID."""
+    """Check whether bootstrap already completed for this SSHMachine."""
+    _ = expected_provider_id
     init = status.get("initialization", {})
-    if not init.get("provisioned"):
-        return False
-    # Check conditions for Ready=True
-    conditions = status.get("conditions", [])
-    return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+    return bool(init.get("provisioned"))
 
 
 def _machine_consumer_ref(name: str, namespace: str) -> dict:
