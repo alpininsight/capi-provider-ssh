@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Re-read live SSHMachine state before bootstrap 
 - Add host-side bootstrap sentinel guard
 - Skip stale SSHMachine reconcile events by UID
-- Classify bootstrap failures by phase and persist sanitized diagnostics
+- **sshmachine:** Classify bootstrap failure phases
 
 ### Miscellaneous
 
