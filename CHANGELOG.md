@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **sshmachine:** Support cloud-init bootstrap and timer reconcile
 - **sshmachine:** Prevent bootstrap rerun after provisioned 
 
+### Documentation
+
+- **governance:** Add ITSM and ISO 20000 continuity guidance
+
 ### Testing
 
 - Enforce deterministic integration teardown cleanup
