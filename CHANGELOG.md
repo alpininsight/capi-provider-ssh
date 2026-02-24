@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 
 - **sshmachine:** Support cloud-init bootstrap and timer reconcile
+- **sshmachine:** Prevent bootstrap rerun after provisioned 
 
 ### Testing
 
