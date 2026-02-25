@@ -1354,7 +1354,7 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
         changed = _claim_ready_field_ownership(meta, patch) or changed
         if changed:
             logger.info(
-                "SSHMachine %s/%s already provisioned (providerID=%s), ensured readiness/providerID fields stay persisted",
+                "SSHMachine %s/%s already provisioned (providerID=%s), ensured readiness/providerID persistence",
                 namespace,
                 name,
                 provider_id,
