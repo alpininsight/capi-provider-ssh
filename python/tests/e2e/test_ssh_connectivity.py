@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncssh
 import pytest
 
 from capi_provider_ssh.ssh import SSHClient
@@ -37,8 +38,8 @@ class TestSSHConnectivity:
         assert result.success is False
 
     async def test_connect_timeout_unreachable(self, ssh_private_key):
-        """Connecting to an unreachable address with a short timeout raises TimeoutError."""
-        with pytest.raises(TimeoutError):
+        """Connecting to an unreachable address fails across route-dependent error types."""
+        with pytest.raises((TimeoutError, asyncssh.Error, OSError)):
             await SSHClient.connect(
                 address="192.0.2.1",  # TEST-NET-1 (RFC 5737), guaranteed unreachable
                 port=22,
