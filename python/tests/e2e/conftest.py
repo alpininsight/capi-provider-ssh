@@ -61,7 +61,8 @@ def ssh_private_key():
     Uses E2E_SSH_KEY_PATH env var (default: ~/.ssh/id_ed25519).
     Skips if the key file doesn't exist.
     """
-    key_path = os.environ.get("E2E_SSH_KEY_PATH", os.path.expanduser("~/.ssh/id_ed25519"))
+    raw_key_path = os.environ.get("E2E_SSH_KEY_PATH", "~/.ssh/id_ed25519")
+    key_path = os.path.expanduser(os.path.expandvars(raw_key_path))
     if not os.path.exists(key_path):
         pytest.skip(f"SSH private key not found: {key_path}")
     with open(key_path) as f:
