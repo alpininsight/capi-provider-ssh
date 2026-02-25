@@ -1161,7 +1161,7 @@ class TestSSHMachineDelete:
             call_kwargs = mock_api.patch_namespaced_custom_object.call_args
             assert call_kwargs[1]["name"] == "host-2"
             body = call_kwargs[1]["body"]
-            assert body["spec"]["consumerRef"] == {}
+            assert body["spec"]["consumerRef"] is None
             assert body["status"]["inUse"] is False
 
     @pytest.mark.asyncio
@@ -1350,7 +1350,7 @@ class TestChooseHost:
             assert mock_api.patch_namespaced_custom_object.call_count == 2
             first_call = mock_api.patch_namespaced_custom_object.call_args_list[0][1]["body"]
             second_call = mock_api.patch_namespaced_custom_object.call_args_list[1][1]["body"]
-            assert first_call["spec"]["consumerRef"] == {}
+            assert first_call["spec"]["consumerRef"] is None
             assert second_call["spec"]["consumerRef"]["name"] == "m1"
 
     @pytest.mark.asyncio
@@ -1399,7 +1399,7 @@ class TestReleaseHost:
             await _release_host(spec, "m1", "default")
             mock_api.patch_namespaced_custom_object.assert_called_once()
             body = mock_api.patch_namespaced_custom_object.call_args[1]["body"]
-            assert body["spec"]["consumerRef"] == {}
+            assert body["spec"]["consumerRef"] is None
             assert body["status"]["inUse"] is False
 
     @pytest.mark.asyncio

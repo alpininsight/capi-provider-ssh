@@ -982,10 +982,15 @@ def _patch_host_consumer(
     in_use: bool,
     resource_version: str | None,
 ) -> bool:
-    """Patch SSHHost consumerRef with optimistic concurrency (resourceVersion)."""
+    """Patch SSHHost consumerRef with optimistic concurrency (resourceVersion).
+
+    Clearing with `{}` is a no-op under JSON merge patch semantics for nested
+    objects. Use `null` to remove spec.consumerRef keys definitively.
+    """
+    consumer_ref_patch: dict | None = consumer_ref if consumer_ref else None
     body: dict = {
         "spec": {
-            "consumerRef": consumer_ref,
+            "consumerRef": consumer_ref_patch,
         },
         "status": {
             "inUse": in_use,
