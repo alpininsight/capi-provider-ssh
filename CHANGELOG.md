@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **e2e:** Add SSH e2e tests against real target 
 - Enforce machine-first teardown ordering
 - Expand E2E ssh key path before existence check
+- Allow route-dependent unreachable-host failures
 
 ## [0.3.8] - 2026-02-24
 
