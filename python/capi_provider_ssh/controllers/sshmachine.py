@@ -43,6 +43,7 @@ SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS = int(
     os.environ.get("SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS", "5"),
 )
 SSHMACHINE_DISTRIBUTED_LOCK_ANNOTATION = "infrastructure.cluster.x-k8s.io/reconcile-lock"
+SSHMACHINE_READY_OWNERSHIP_ANNOTATION = f"{API_GROUP}/status-ready-owned"
 BOOTSTRAP_SUCCESS_SENTINEL_PATH = "/run/cluster-api/bootstrap-success.complete"
 BOOTSTRAP_SENTINEL_HIT_OUTPUT = "__CAPI_PROVIDER_SSH_BOOTSTRAP_SENTINEL_HIT__"
 KUBELET_READY_SENTINEL_OUTPUT = "__CAPI_PROVIDER_SSH_KUBELET_READY__"
@@ -772,6 +773,18 @@ def _backfill_provisioned_fields(spec: dict, status: dict, patch, provider_id: s
     return changed
 
 
+def _claim_ready_field_ownership(meta: dict, patch) -> bool:
+    """Write status.ready once via kopf patch to keep ownership stable across upgrades."""
+    annotations = meta.get("annotations") or {}
+    if annotations.get(SSHMACHINE_READY_OWNERSHIP_ANNOTATION) == "true":
+        return False
+
+    patch.status["ready"] = True
+    patch.metadata.setdefault("annotations", {})
+    patch.metadata["annotations"][SSHMACHINE_READY_OWNERSHIP_ANNOTATION] = "true"
+    return True
+
+
 def _reconcile_lock_key(namespace: str, name: str) -> str:
     return f"{namespace}/{name}"
 
@@ -1338,9 +1351,10 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     # Idempotency: skip if already provisioned
     if _is_already_provisioned(status, provider_id):
         changed = _backfill_provisioned_fields(spec, status, patch, provider_id, address)
+        changed = _claim_ready_field_ownership(meta, patch) or changed
         if changed:
             logger.info(
-                "SSHMachine %s/%s already provisioned (providerID=%s), backfilled missing readiness/providerID fields",
+                "SSHMachine %s/%s already provisioned (providerID=%s), ensured readiness/providerID persistence",
                 namespace,
                 name,
                 provider_id,
