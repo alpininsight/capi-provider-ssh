@@ -11,7 +11,6 @@ from capi_provider_ssh.controllers.sshmachine import (
     _RECONCILE_LOCK_HOLDER,
     BOOTSTRAP_SENTINEL_HIT_OUTPUT,
     BOOTSTRAP_SUCCESS_SENTINEL_PATH,
-    SSHMACHINE_READY_OWNERSHIP_ANNOTATION,
     _acquire_distributed_reconcile_lock,
     _bootstrap_execution_command,
     _build_reconcile_lock_holder,
@@ -314,7 +313,7 @@ class TestSSHMachineReconcile:
             meta=sshmachine_meta_with_owner,
             patch=patch_obj,
         )
-        # Should not modify status (idempotent)
+        assert patch_obj["status"]["ready"] is True
         assert "initialization" not in patch_obj.get("status", {})
 
     @pytest.mark.asyncio
@@ -337,6 +336,7 @@ class TestSSHMachineReconcile:
                 patch=patch_obj,
             )
         read_bootstrap.assert_not_called()
+        assert patch_obj["status"]["ready"] is True
         assert "initialization" not in patch_obj.get("status", {})
 
     @pytest.mark.asyncio
@@ -693,10 +693,10 @@ runcmd:
             )
         read_bootstrap.assert_not_called()
         assert patch_obj["status"]["ready"] is True
-        assert patch_obj["metadata"]["annotations"][SSHMACHINE_READY_OWNERSHIP_ANNOTATION] == "true"
+        assert "metadata" not in patch_obj
 
     @pytest.mark.asyncio
-    async def test_timer_skips_already_provisioned_machine_when_ready_ownership_is_marked(
+    async def test_timer_keeps_ready_field_in_patch_even_when_annotation_exists(
         self,
         sshmachine_spec,
         sshmachine_meta_with_owner,
@@ -709,7 +709,7 @@ runcmd:
         }
         meta_with_ready_ownership = {
             **sshmachine_meta_with_owner,
-            "annotations": {SSHMACHINE_READY_OWNERSHIP_ANNOTATION: "true"},
+            "annotations": {"infrastructure.alpininsight.ai/status-ready-owned": "true"},
         }
         with patch(
             "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
@@ -725,7 +725,8 @@ runcmd:
                 patch=patch_obj,
             )
         read_bootstrap.assert_not_called()
-        assert patch_obj == {}
+        assert patch_obj["status"]["ready"] is True
+        assert "metadata" not in patch_obj
 
     @pytest.mark.asyncio
     async def test_timer_skips_provisioned_machine_when_ready_false(self, sshmachine_spec, sshmachine_meta_with_owner):
