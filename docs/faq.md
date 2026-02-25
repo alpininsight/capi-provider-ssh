@@ -58,6 +58,35 @@ preKubeadmCommands:
   - iptables -F && iptables -t nat -F && iptables -t mangle -F
 ```
 
+## How should I re-provision Lima-backed nodes?
+
+Always drive lifecycle from CAPI core objects:
+
+```bash
+kubectl -n <namespace> delete machine <machine-name>
+```
+
+Do **not** delete `SSHMachine` directly for reprovision. Deleting the `Machine`
+lets CAPI orchestrate infrastructure deletion, and the provider can release
+`SSHHost` claims and run node cleanup (`kubeadm reset`).
+
+If you use Lima-hosted VMs, choose one of these host-side reset paths before
+re-bootstrap:
+
+1. Reset Kubernetes state in-place (keep VMs):
+   ```bash
+   limactl shell <vm-name> -- sudo kubeadm reset -f
+   limactl shell <vm-name> -- sudo rm -rf /etc/kubernetes /var/lib/kubelet
+   ```
+2. Recreate VMs for a full clean slate:
+   ```bash
+   limactl delete <vm-name>
+   limactl start <vm-config-or-instance>
+   ```
+
+`limactl` usage and VM names are user/environment-specific and are outside the
+provider API contract.
+
 ## Is SSHHost health probing functional?
 
 **Yes.** The SSHHost controller runs a timer-based probe on each SSHHost:
