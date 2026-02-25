@@ -1,0 +1,54 @@
+name: E2E SSH Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *" # Nightly at 03:00 UTC
+
+concurrency:
+  group: e2e-ssh-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-ssh:
+    name: E2E SSH (strato-vm2)
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Write SSH private key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.E2E_SSH_PRIVATE_KEY }}" > ~/.ssh/e2e_key
+          chmod 600 ~/.ssh/e2e_key
+
+      - name: Run E2E SSH tests
+        env:
+          E2E_TESTS: "1"
+          E2E_SSH_HOST: "217.154.172.8"
+          E2E_SSH_KEY_PATH: ~/.ssh/e2e_key
+        run: uv run pytest tests/e2e/ -v --timeout=120
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/e2e_key

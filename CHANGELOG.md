@@ -16,9 +16,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **sshmachine:** Classify bootstrap failure phases
 - **sshmachine:** Gate ready on kubelet post-bootstrap checks
 
+### Documentation
+
+- **roadmap:** Add dev substrate provisioning objective
+
 ### Miscellaneous
 
 - Merge main into develop for release convergence
+
+### Styling
+
+- Apply ruff format for teardown test
+
+### Testing
+
+- **e2e:** Add SSH e2e tests against real target 
+- Enforce machine-first teardown ordering
+- Expand E2E ssh key path before existence check
 
 ## [0.3.8] - 2026-02-24
 

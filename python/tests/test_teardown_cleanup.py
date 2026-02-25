@@ -150,3 +150,20 @@ def test_teardown_collects_debug_bundle_on_failure(tmp_path) -> None:
     assert bundles, "expected teardown debug bundle directory to be created"
     residue_files = list(bundles[0].glob("residue.json"))
     assert residue_files, "expected residue.json in teardown debug bundle"
+
+
+def test_teardown_prefers_machine_delete_before_sshmachine() -> None:
+    core_api = MagicMock()
+    custom_api = MagicMock()
+    core_api.read_namespace.side_effect = [
+        _namespace("test-capi-ssh-abc123", {"capi-provider-ssh-test": "true"}),
+        _api_error(404),
+        _api_error(404),
+    ]
+    core_api.list_namespaced_secret.return_value = SimpleNamespace(items=[])
+    custom_api.list_namespaced_custom_object.return_value = {"items": []}
+
+    teardown_test_namespace(core_api=core_api, custom_api=custom_api, namespace="test-capi-ssh-abc123")
+
+    plural_calls = [call.kwargs.get("plural") for call in custom_api.list_namespaced_custom_object.call_args_list[:4]]
+    assert plural_calls == ["machines", "sshmachines", "sshclusters", "kubeadmconfigs"]
