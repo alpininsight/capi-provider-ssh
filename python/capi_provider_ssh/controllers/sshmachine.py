@@ -724,6 +724,54 @@ def _is_already_provisioned(status: dict, expected_provider_id: str) -> bool:
     return bool(init.get("provisioned"))
 
 
+def _has_ready_true_condition(status: dict) -> bool:
+    """Return True when status.conditions includes Ready=True."""
+    for condition in status.get("conditions", []):
+        if condition.get("type") != "Ready":
+            continue
+        if str(condition.get("status", "")).lower() == "true":
+            return True
+    return False
+
+
+def _backfill_provisioned_fields(spec: dict, status: dict, patch, provider_id: str, address: str) -> bool:
+    """Patch missing providerID/readiness fields on already-provisioned SSHMachines."""
+    changed = False
+
+    if spec.get("providerID") != provider_id:
+        patch.spec["providerID"] = provider_id
+        changed = True
+
+    if status.get("ready") is not True:
+        patch.status["ready"] = True
+        changed = True
+
+    init = status.get("initialization", {})
+    if not bool(init.get("provisioned")):
+        patch.status["initialization"] = {"provisioned": True}
+        changed = True
+
+    if not _has_ready_true_condition(status):
+        patch.status["conditions"] = [
+            _ready_condition(f"Machine {address} already provisioned with providerID {provider_id}"),
+        ]
+        changed = True
+
+    if status.get("failureReason") is not None:
+        patch.status["failureReason"] = None
+        changed = True
+
+    if status.get("failureMessage") is not None:
+        patch.status["failureMessage"] = None
+        changed = True
+
+    if status.get("bootstrapDiagnostics") is not None:
+        patch.status["bootstrapDiagnostics"] = None
+        changed = True
+
+    return changed
+
+
 def _reconcile_lock_key(namespace: str, name: str) -> str:
     return f"{namespace}/{name}"
 
@@ -1289,7 +1337,16 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
 
     # Idempotency: skip if already provisioned
     if _is_already_provisioned(status, provider_id):
-        logger.info("SSHMachine %s/%s already provisioned (providerID=%s)", namespace, name, provider_id)
+        changed = _backfill_provisioned_fields(spec, status, patch, provider_id, address)
+        if changed:
+            logger.info(
+                "SSHMachine %s/%s already provisioned (providerID=%s), backfilled missing readiness/providerID fields",
+                namespace,
+                name,
+                provider_id,
+            )
+        else:
+            logger.info("SSHMachine %s/%s already provisioned (providerID=%s)", namespace, name, provider_id)
         return
 
     # Keep diagnostics current and prevent stale bootstrap failure details.
@@ -1488,6 +1545,7 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     # Success
     patch.spec["providerID"] = provider_id
     patch.status["initialization"] = {"provisioned": True}
+    patch.status["ready"] = True
     patch.status["addresses"] = [
         {"type": "InternalIP", "address": address},
     ]
