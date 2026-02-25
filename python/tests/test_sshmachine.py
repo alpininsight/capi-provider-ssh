@@ -11,6 +11,7 @@ from capi_provider_ssh.controllers.sshmachine import (
     _RECONCILE_LOCK_HOLDER,
     BOOTSTRAP_SENTINEL_HIT_OUTPUT,
     BOOTSTRAP_SUCCESS_SENTINEL_PATH,
+    SSHMACHINE_READY_OWNERSHIP_ANNOTATION,
     _acquire_distributed_reconcile_lock,
     _bootstrap_execution_command,
     _build_reconcile_lock_holder,
@@ -688,6 +689,39 @@ runcmd:
                 name="m1",
                 namespace="default",
                 meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+        read_bootstrap.assert_not_called()
+        assert patch_obj["status"]["ready"] is True
+        assert patch_obj["metadata"]["annotations"][SSHMACHINE_READY_OWNERSHIP_ANNOTATION] == "true"
+
+    @pytest.mark.asyncio
+    async def test_timer_skips_already_provisioned_machine_when_ready_ownership_is_marked(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        spec_with_provider = {**sshmachine_spec, "providerID": "ssh://100.64.0.10"}
+        status = {
+            "initialization": {"provisioned": True},
+            "ready": True,
+            "conditions": [{"type": "Ready", "status": "True"}],
+        }
+        meta_with_ready_ownership = {
+            **sshmachine_meta_with_owner,
+            "annotations": {SSHMACHINE_READY_OWNERSHIP_ANNOTATION: "true"},
+        }
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+            new_callable=AsyncMock,
+        ) as read_bootstrap:
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile_timer(
+                spec=spec_with_provider,
+                status=status,
+                name="m1",
+                namespace="default",
+                meta=meta_with_ready_ownership,
                 patch=patch_obj,
             )
         read_bootstrap.assert_not_called()
