@@ -86,9 +86,11 @@ def teardown_test_namespace(
             )
 
         resources = [
+            # Prefer CAPI core resources first so CAPI drives infrastructure deletion.
+            ("machines", CAPI_API_GROUP, CAPI_API_VERSION),
+            # Sweep infrastructure resources afterward to remove any leftovers.
             ("sshmachines", SSH_API_GROUP, SSH_API_VERSION),
             ("sshclusters", SSH_API_GROUP, SSH_API_VERSION),
-            ("machines", CAPI_API_GROUP, CAPI_API_VERSION),
             ("kubeadmconfigs", BOOTSTRAP_API_GROUP, BOOTSTRAP_API_VERSION),
         ]
 
@@ -177,9 +179,9 @@ def collect_namespace_residue(
         residue["namespace"].append(namespace)
 
     resources = [
+        ("machines", CAPI_API_GROUP, CAPI_API_VERSION),
         ("sshmachines", SSH_API_GROUP, SSH_API_VERSION),
         ("sshclusters", SSH_API_GROUP, SSH_API_VERSION),
-        ("machines", CAPI_API_GROUP, CAPI_API_VERSION),
         ("kubeadmconfigs", BOOTSTRAP_API_GROUP, BOOTSTRAP_API_VERSION),
     ]
     for plural, group, version in resources:
@@ -223,9 +225,9 @@ def collect_teardown_debug_bundle(
     )
 
     resources = [
+        ("machines", CAPI_API_GROUP, CAPI_API_VERSION),
         ("sshmachines", SSH_API_GROUP, SSH_API_VERSION),
         ("sshclusters", SSH_API_GROUP, SSH_API_VERSION),
-        ("machines", CAPI_API_GROUP, CAPI_API_VERSION),
         ("kubeadmconfigs", BOOTSTRAP_API_GROUP, BOOTSTRAP_API_VERSION),
     ]
     for plural, group, version in resources:

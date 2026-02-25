@@ -145,8 +145,9 @@ Integration tests now use a deterministic teardown contract in
 
 1. Teardown is allowed only for namespaces with prefix `test-capi-ssh-` and
    label `capi-provider-ssh-test=true`.
-2. Resources are deleted in explicit order (`SSHMachine`/`SSHCluster` first,
-   then CAPI/Bootstrap test objects, then namespace).
+2. Resources are deleted in explicit order (CAPI `Machine` first so CAPI can
+   drive infrastructure cleanup, then `SSHMachine`/`SSHCluster`, then bootstrap
+   test objects, then namespace).
 3. Teardown asserts there is no residue (`Machine`, `SSHMachine`,
    `KubeadmConfig`, test Secrets, test namespaces).
 4. On teardown failure, a debug bundle is written (when
