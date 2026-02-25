@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **sshmachine:** Classify bootstrap failure phases
 - **sshmachine:** Gate ready on kubelet post-bootstrap checks
 - Persist stale SSHHost claim clearing and document Lima reprovision
+- **sshmachine:** Backfill providerID and ready on provisioned machines
 
 ### Documentation
 
