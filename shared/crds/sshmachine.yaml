@@ -179,6 +179,9 @@ spec:
                         type: string
                       message:
                         type: string
+                ready:
+                  type: boolean
+                  description: Legacy readiness flag for CAPI machine-controller compatibility (mirrors initialization.provisioned).
                 failureReason:
                   type: string
                 failureMessage:
@@ -219,7 +222,7 @@ spec:
           jsonPath: .spec.providerID
         - name: Ready
           type: boolean
-          jsonPath: .status.initialization.provisioned
+          jsonPath: .status.ready
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
