@@ -165,8 +165,5 @@ def test_teardown_prefers_machine_delete_before_sshmachine() -> None:
 
     teardown_test_namespace(core_api=core_api, custom_api=custom_api, namespace="test-capi-ssh-abc123")
 
-    plural_calls = [
-        call.kwargs.get("plural")
-        for call in custom_api.list_namespaced_custom_object.call_args_list[:4]
-    ]
+    plural_calls = [call.kwargs.get("plural") for call in custom_api.list_namespaced_custom_object.call_args_list[:4]]
     assert plural_calls == ["machines", "sshmachines", "sshclusters", "kubeadmconfigs"]
