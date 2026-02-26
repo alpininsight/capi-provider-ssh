@@ -51,6 +51,13 @@ BOOTSTRAP_PHASE_REASON_MAP = {
     "init": "BootstrapInitFailed",
     "join": "BootstrapJoinFailed",
 }
+BOOTSTRAP_CHECK_STRATEGY_DEFAULT = "ssh"
+BOOTSTRAP_CHECK_STRATEGY_SSH = "ssh"
+BOOTSTRAP_CHECK_STRATEGY_NONE = "none"
+BOOTSTRAP_CHECK_STRATEGIES = {
+    BOOTSTRAP_CHECK_STRATEGY_SSH,
+    BOOTSTRAP_CHECK_STRATEGY_NONE,
+}
 BOOTSTRAP_DIAGNOSTIC_MAX_EXCERPT = 240
 BOOTSTRAP_DIAGNOSTIC_REDACTIONS = (
     (re.compile(r"(?i)(--token(?:=|\s+))\S+"), r"\1[REDACTED]"),
@@ -69,40 +76,81 @@ def _build_reconcile_lock_holder() -> str:
 
 
 _RECONCILE_LOCK_HOLDER = _build_reconcile_lock_holder()
+MACHINE_INFRASTRUCTURE_READY_CONDITION = "InfrastructureReady"
+MACHINE_BOOTSTRAP_EXEC_SUCCEEDED_CONDITION = "BootstrapExecSucceeded"
 
 
 def _now_iso() -> str:
     return datetime.datetime.now(datetime.UTC).isoformat()
 
 
-def _ready_condition(message: str) -> dict:
+def _condition(condition_type: str, status: str, reason: str, message: str) -> dict:
     return {
-        "type": "Ready",
-        "status": "True",
+        "type": condition_type,
+        "status": status,
         "lastTransitionTime": _now_iso(),
-        "reason": "Provisioned",
+        "reason": reason,
         "message": message,
     }
+
+
+def _ready_condition(message: str) -> dict:
+    return _condition("Ready", "True", "Provisioned", message)
 
 
 def _not_ready_condition(reason: str, message: str) -> dict:
-    return {
-        "type": "Ready",
-        "status": "False",
-        "lastTransitionTime": _now_iso(),
-        "reason": reason,
-        "message": message,
-    }
+    return _condition("Ready", "False", reason, message)
 
 
 def _info_condition(condition_type: str, reason: str, message: str) -> dict:
-    return {
-        "type": condition_type,
-        "status": "True",
-        "lastTransitionTime": _now_iso(),
-        "reason": reason,
-        "message": message,
-    }
+    return _condition(condition_type, "True", reason, message)
+
+
+def _normalize_bootstrap_check_strategy(spec: dict) -> str:
+    """Validate and normalize SSHMachine bootstrap check strategy."""
+    raw = spec.get("bootstrapCheckStrategy")
+    if raw is None:
+        return BOOTSTRAP_CHECK_STRATEGY_DEFAULT
+    if not isinstance(raw, str):
+        raise kopf.PermanentError("spec.bootstrapCheckStrategy must be a string (`ssh` or `none`)")
+
+    strategy = raw.strip().lower()
+    if strategy not in BOOTSTRAP_CHECK_STRATEGIES:
+        raise kopf.PermanentError("spec.bootstrapCheckStrategy must be one of: ssh, none")
+    return strategy
+
+
+def _machine_lifecycle_conditions(
+    *,
+    ready: bool,
+    ready_reason: str,
+    ready_message: str,
+    infrastructure_ready: bool,
+    infrastructure_reason: str,
+    infrastructure_message: str,
+    bootstrap_succeeded: bool,
+    bootstrap_reason: str,
+    bootstrap_message: str,
+    extras: list[dict] | None = None,
+) -> list[dict]:
+    conditions = [
+        _condition("Ready", "True" if ready else "False", ready_reason, ready_message),
+        _condition(
+            MACHINE_INFRASTRUCTURE_READY_CONDITION,
+            "True" if infrastructure_ready else "False",
+            infrastructure_reason,
+            infrastructure_message,
+        ),
+        _condition(
+            MACHINE_BOOTSTRAP_EXEC_SUCCEEDED_CONDITION,
+            "True" if bootstrap_succeeded else "False",
+            bootstrap_reason,
+            bootstrap_message,
+        ),
+    ]
+    if extras:
+        conditions.extend(extras)
+    return conditions
 
 
 def _has_machine_owner(owner_references: list[dict] | None) -> bool:
@@ -724,12 +772,12 @@ def _is_already_provisioned(status: dict, expected_provider_id: str) -> bool:
     return bool(init.get("provisioned"))
 
 
-def _has_ready_true_condition(status: dict) -> bool:
-    """Return True when status.conditions includes Ready=True."""
+def _has_condition_status(status: dict, condition_type: str, condition_status: str) -> bool:
+    """Return True when status.conditions includes a matching type/status pair."""
     for condition in status.get("conditions", []):
-        if condition.get("type") != "Ready":
+        if condition.get("type") != condition_type:
             continue
-        if str(condition.get("status", "")).lower() == "true":
+        if str(condition.get("status", "")).lower() == condition_status.lower():
             return True
     return False
 
@@ -752,10 +800,23 @@ def _backfill_provisioned_fields(spec: dict, status: dict, patch, provider_id: s
         patch.status["initialization"] = {"provisioned": True}
         changed = True
 
-    if not _has_ready_true_condition(status):
-        patch.status["conditions"] = [
-            _ready_condition(f"Machine {address} already provisioned with providerID {provider_id}"),
-        ]
+    if (
+        not _has_condition_status(status, "Ready", "True")
+        or not _has_condition_status(status, MACHINE_INFRASTRUCTURE_READY_CONDITION, "True")
+        or not _has_condition_status(status, MACHINE_BOOTSTRAP_EXEC_SUCCEEDED_CONDITION, "True")
+    ):
+        ready_message = f"Machine {address} already provisioned with providerID {provider_id}"
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=True,
+            ready_reason="Provisioned",
+            ready_message=ready_message,
+            infrastructure_ready=True,
+            infrastructure_reason="Provisioned",
+            infrastructure_message=ready_message,
+            bootstrap_succeeded=True,
+            bootstrap_reason="BootstrapCompleted",
+            bootstrap_message="Bootstrap execution has completed for this machine",
+        )
         changed = True
 
     if status.get("failureReason") is not None:
@@ -1115,12 +1176,24 @@ async def _choose_host(spec: dict, name: str, namespace: str, patch) -> bool:
         # Direct mode: address is required when hostSelector is not used.
         if spec.get("address"):
             return True
+        message = "Either address or hostSelector must be provided"
+        reason = "InvalidConfiguration"
         patch.status["failureReason"] = "InvalidConfiguration"
-        patch.status["failureMessage"] = "Either address or hostSelector must be provided"
-        patch.status["conditions"] = [
-            _not_ready_condition("InvalidConfiguration", "Either address or hostSelector must be provided"),
-        ]
-        raise kopf.PermanentError("Either address or hostSelector must be provided")
+        patch.status["failureMessage"] = message
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason="BootstrapNotStarted",
+            bootstrap_message="Bootstrap has not started because machine configuration is invalid",
+        )
+        raise kopf.PermanentError(message)
 
     match_labels = host_selector.get("matchLabels", {})
     if not match_labels:
@@ -1235,10 +1308,21 @@ async def _choose_host(spec: dict, name: str, namespace: str, patch) -> bool:
         return True
 
     # No available host found
+    message = f"No unclaimed SSHHost matching {match_labels}"
+    reason = "HostNotAvailable"
     patch.status["initialization"] = {"provisioned": False}
-    patch.status["conditions"] = [
-        _not_ready_condition("HostNotAvailable", f"No unclaimed SSHHost matching {match_labels}"),
-    ]
+    patch.status["ready"] = False
+    patch.status["conditions"] = _machine_lifecycle_conditions(
+        ready=False,
+        ready_reason=reason,
+        ready_message=message,
+        infrastructure_ready=False,
+        infrastructure_reason=reason,
+        infrastructure_message=message,
+        bootstrap_succeeded=False,
+        bootstrap_reason="BootstrapNotStarted",
+        bootstrap_message="Bootstrap has not started because no SSHHost is available",
+    )
     raise kopf.TemporaryError(f"No available SSHHost matching {match_labels}", delay=30)
 
 
@@ -1315,14 +1399,47 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     owner_refs = meta.get("ownerReferences")
     if not _has_machine_owner(owner_refs):
         logger.warning("SSHMachine %s/%s has no CAPI Machine owner, waiting", namespace, name)
+        message = "No CAPI Machine ownerReference found"
+        reason = "WaitingForMachineOwner"
         patch.status["initialization"] = {"provisioned": False}
-        patch.status["conditions"] = [
-            _not_ready_condition("WaitingForMachineOwner", "No CAPI Machine ownerReference found"),
-        ]
+        patch.status["ready"] = False
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason="BootstrapNotStarted",
+            bootstrap_message="Bootstrap has not started because machine ownerReference is missing",
+        )
         return
 
     machine_ref = _get_machine_owner_ref(owner_refs)
     machine_name = machine_ref["name"]
+
+    try:
+        bootstrap_check_strategy = _normalize_bootstrap_check_strategy(spec)
+    except kopf.PermanentError as e:
+        reason = "InvalidConfiguration"
+        message = str(e)
+        patch.status["failureReason"] = reason
+        patch.status["failureMessage"] = message
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason="BootstrapNotStarted",
+            bootstrap_message="Bootstrap has not started due to invalid bootstrapCheckStrategy configuration",
+        )
+        raise
 
     # Host selection: claim an SSHHost if using hostSelector mode
     await _choose_host(spec, name, namespace, patch)
@@ -1357,21 +1474,44 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     bootstrap_data = await _read_bootstrap_data(namespace, machine_name)
     if not bootstrap_data:
         logger.info("SSHMachine %s/%s waiting for bootstrap data", namespace, name)
+        reason = "WaitingForBootstrapData"
+        message = f"Bootstrap data not yet available for {machine_name}"
         patch.status["initialization"] = {"provisioned": False}
-        patch.status["conditions"] = [
-            _not_ready_condition("WaitingForBootstrapData", f"Bootstrap data not yet available for {machine_name}"),
-        ]
+        patch.status["ready"] = False
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason=reason,
+            bootstrap_message=message,
+        )
         raise kopf.TemporaryError("Bootstrap data not ready", delay=15)
 
     # Optional external-etcd wiring and cert distribution configuration.
     try:
         external_etcd = _normalize_external_etcd(spec)
     except kopf.PermanentError as e:
-        patch.status["failureReason"] = "ExternalEtcdConfigurationError"
-        patch.status["failureMessage"] = str(e)
-        patch.status["conditions"] = [
-            _not_ready_condition("ExternalEtcdConfigurationError", str(e)),
-        ]
+        reason = "ExternalEtcdConfigurationError"
+        message = str(e)
+        patch.status["failureReason"] = reason
+        patch.status["failureMessage"] = message
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason="BootstrapNotStarted",
+            bootstrap_message="Bootstrap has not started due to external etcd configuration error",
+        )
         raise
 
     if external_etcd:
@@ -1380,21 +1520,45 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
             if changed:
                 logger.info("SSHMachine %s/%s patched bootstrap data with external etcd wiring", namespace, name)
         except kopf.PermanentError as e:
-            patch.status["failureReason"] = "ExternalEtcdWiringError"
-            patch.status["failureMessage"] = str(e)
-            patch.status["conditions"] = [
-                _not_ready_condition("ExternalEtcdWiringError", str(e)),
-            ]
+            reason = "ExternalEtcdWiringError"
+            message = str(e)
+            patch.status["failureReason"] = reason
+            patch.status["failureMessage"] = message
+            patch.status["ready"] = False
+            patch.status["initialization"] = {"provisioned": False}
+            patch.status["conditions"] = _machine_lifecycle_conditions(
+                ready=False,
+                ready_reason=reason,
+                ready_message=message,
+                infrastructure_ready=False,
+                infrastructure_reason=reason,
+                infrastructure_message=message,
+                bootstrap_succeeded=False,
+                bootstrap_reason="BootstrapNotStarted",
+                bootstrap_message="Bootstrap has not started due to external etcd wiring error",
+            )
             raise
 
     try:
         bootstrap_script, bootstrap_format = _prepare_bootstrap_script(bootstrap_data)
     except kopf.PermanentError as e:
-        patch.status["failureReason"] = "BootstrapFormatError"
-        patch.status["failureMessage"] = str(e)
-        patch.status["conditions"] = [
-            _not_ready_condition("BootstrapFormatError", str(e)),
-        ]
+        reason = "BootstrapFormatError"
+        message = str(e)
+        patch.status["failureReason"] = reason
+        patch.status["failureMessage"] = message
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason="BootstrapNotStarted",
+            bootstrap_message="Bootstrap has not started because bootstrap data format is invalid",
+        )
         raise
 
     logger.info("SSHMachine %s/%s bootstrap payload format: %s", namespace, name, bootstrap_format)
@@ -1405,11 +1569,23 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     secret_key = ssh_key_ref.get("key", "value")
 
     if not secret_name:
-        patch.status["failureReason"] = "InvalidConfiguration"
+        reason = "InvalidConfiguration"
+        message = "Missing sshKeyRef.name"
+        patch.status["failureReason"] = reason
         patch.status["failureMessage"] = "spec.sshKeyRef.name is required"
-        patch.status["conditions"] = [
-            _not_ready_condition("InvalidConfiguration", "Missing sshKeyRef.name"),
-        ]
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason="BootstrapNotStarted",
+            bootstrap_message="Bootstrap has not started because SSH key reference is missing",
+        )
         raise kopf.PermanentError("spec.sshKeyRef.name is required")
 
     try:
@@ -1417,11 +1593,23 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     except kopf.PermanentError:
         raise
     except Exception as e:
-        patch.status["failureReason"] = "SSHKeyReadError"
+        reason = "SSHKeyReadError"
+        message = f"Failed to read SSH key secret: {e}"
+        patch.status["failureReason"] = reason
         patch.status["failureMessage"] = f"Failed to read SSH key: {e}"
-        patch.status["conditions"] = [
-            _not_ready_condition("SSHKeyReadError", f"Failed to read SSH key secret: {e}"),
-        ]
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason="BootstrapNotStarted",
+            bootstrap_message="Bootstrap has not started because SSH key retrieval failed",
+        )
         raise kopf.TemporaryError(f"SSH key read failed: {e}", delay=30) from e
 
     # Dry-run mode: validate prerequisites without executing the bootstrap script.
@@ -1430,20 +1618,46 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
             async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
                 pass  # Connection test only
         except Exception as e:
-            patch.status["failureReason"] = "DryRunSSHFailed"
+            reason = "DryRunSSHFailed"
+            message = f"SSH connectivity check failed: {e}"
+            patch.status["failureReason"] = reason
             patch.status["failureMessage"] = f"Dry-run SSH connectivity check failed: {e}"
-            patch.status["conditions"] = [
-                _not_ready_condition("DryRunSSHFailed", f"SSH connectivity check failed: {e}"),
-            ]
+            patch.status["ready"] = False
+            patch.status["initialization"] = {"provisioned": False}
+            patch.status["conditions"] = _machine_lifecycle_conditions(
+                ready=False,
+                ready_reason=reason,
+                ready_message=message,
+                infrastructure_ready=False,
+                infrastructure_reason=reason,
+                infrastructure_message=message,
+                bootstrap_succeeded=False,
+                bootstrap_reason="DryRunMode",
+                bootstrap_message="Bootstrap execution is skipped in dry-run mode",
+            )
             raise kopf.TemporaryError(f"Dry-run SSH failed: {e}", delay=30) from e
 
-        patch.status["conditions"] = [
-            _info_condition(
-                "DryRunValidated",
-                "PreflightPassed",
-                f"Dry-run passed: SSH to {address}, bootstrap data ready",
-            ),
-        ]
+        dry_run_message = f"Dry-run passed: SSH to {address}, bootstrap data ready"
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason="DryRunMode",
+            ready_message="Dry-run mode does not provision infrastructure",
+            infrastructure_ready=False,
+            infrastructure_reason="DryRunMode",
+            infrastructure_message="Dry-run mode validates prerequisites without provisioning",
+            bootstrap_succeeded=False,
+            bootstrap_reason="DryRunMode",
+            bootstrap_message="Bootstrap execution is skipped in dry-run mode",
+            extras=[
+                _info_condition(
+                    "DryRunValidated",
+                    "PreflightPassed",
+                    dry_run_message,
+                ),
+            ],
+        )
         patch.status["bootstrapDiagnostics"] = None
         patch.status["failureReason"] = None
         patch.status["failureMessage"] = None
@@ -1457,18 +1671,42 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
                 try:
                     await _upload_external_etcd_certs(conn, namespace, external_etcd)
                 except kopf.PermanentError as e:
-                    patch.status["failureReason"] = "ExternalEtcdCertError"
-                    patch.status["failureMessage"] = str(e)
-                    patch.status["conditions"] = [
-                        _not_ready_condition("ExternalEtcdCertError", str(e)),
-                    ]
+                    reason = "ExternalEtcdCertError"
+                    message = str(e)
+                    patch.status["failureReason"] = reason
+                    patch.status["failureMessage"] = message
+                    patch.status["ready"] = False
+                    patch.status["initialization"] = {"provisioned": False}
+                    patch.status["conditions"] = _machine_lifecycle_conditions(
+                        ready=False,
+                        ready_reason=reason,
+                        ready_message=message,
+                        infrastructure_ready=False,
+                        infrastructure_reason=reason,
+                        infrastructure_message=message,
+                        bootstrap_succeeded=False,
+                        bootstrap_reason="BootstrapNotStarted",
+                        bootstrap_message="Bootstrap has not started due to external etcd certificate error",
+                    )
                     raise
                 except kopf.TemporaryError as e:
-                    patch.status["failureReason"] = "ExternalEtcdCertUploadError"
-                    patch.status["failureMessage"] = str(e)
-                    patch.status["conditions"] = [
-                        _not_ready_condition("ExternalEtcdCertUploadError", str(e)),
-                    ]
+                    reason = "ExternalEtcdCertUploadError"
+                    message = str(e)
+                    patch.status["failureReason"] = reason
+                    patch.status["failureMessage"] = message
+                    patch.status["ready"] = False
+                    patch.status["initialization"] = {"provisioned": False}
+                    patch.status["conditions"] = _machine_lifecycle_conditions(
+                        ready=False,
+                        ready_reason=reason,
+                        ready_message=message,
+                        infrastructure_ready=False,
+                        infrastructure_reason=reason,
+                        infrastructure_message=message,
+                        bootstrap_succeeded=False,
+                        bootstrap_reason="BootstrapNotStarted",
+                        bootstrap_message="Bootstrap has not started due to external etcd certificate upload error",
+                    )
                     raise
 
             # Upload bootstrap script
@@ -1489,9 +1727,19 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
                     "exitCode": result.exit_code,
                     "stderrExcerpt": stderr_excerpt,
                 }
-                patch.status["conditions"] = [
-                    _not_ready_condition(failure_reason, failure_message),
-                ]
+                patch.status["ready"] = False
+                patch.status["initialization"] = {"provisioned": False}
+                patch.status["conditions"] = _machine_lifecycle_conditions(
+                    ready=False,
+                    ready_reason=failure_reason,
+                    ready_message=failure_message,
+                    infrastructure_ready=False,
+                    infrastructure_reason=failure_reason,
+                    infrastructure_message=failure_message,
+                    bootstrap_succeeded=False,
+                    bootstrap_reason=failure_reason,
+                    bootstrap_message=failure_message,
+                )
                 raise kopf.TemporaryError(
                     f"Bootstrap failed ({failure_reason}, exit {result.exit_code})",
                     delay=30,
@@ -1505,23 +1753,41 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
                     address,
                 )
 
-            readiness_result = await conn.execute(_post_bootstrap_readiness_command())  # noqa: S108
-            if not readiness_result.success:
-                failure_reason, failure_message = _classify_kubelet_not_ready(readiness_result)
-                patch.status["initialization"] = {"provisioned": False}
-                patch.status["failureReason"] = failure_reason
-                patch.status["failureMessage"] = failure_message
-                patch.status["conditions"] = [
-                    _not_ready_condition(failure_reason, failure_message),
-                    _info_condition(
-                        "Bootstrapped",
-                        "BootstrapCompleted",
-                        "Bootstrap script completed; waiting for kubelet readiness checks to pass",
-                    ),
-                ]
-                raise kopf.TemporaryError(
-                    f"Post-bootstrap readiness check failed ({failure_reason}, exit {readiness_result.exit_code})",
-                    delay=30,
+            if bootstrap_check_strategy == BOOTSTRAP_CHECK_STRATEGY_SSH:
+                readiness_result = await conn.execute(_post_bootstrap_readiness_command())  # noqa: S108
+                if not readiness_result.success:
+                    failure_reason, failure_message = _classify_kubelet_not_ready(readiness_result)
+                    patch.status["initialization"] = {"provisioned": False}
+                    patch.status["failureReason"] = failure_reason
+                    patch.status["failureMessage"] = failure_message
+                    patch.status["ready"] = False
+                    patch.status["conditions"] = _machine_lifecycle_conditions(
+                        ready=False,
+                        ready_reason=failure_reason,
+                        ready_message=failure_message,
+                        infrastructure_ready=False,
+                        infrastructure_reason=failure_reason,
+                        infrastructure_message=failure_message,
+                        bootstrap_succeeded=True,
+                        bootstrap_reason="BootstrapCompleted",
+                        bootstrap_message="Bootstrap script completed; waiting for kubelet readiness checks to pass",
+                        extras=[
+                            _info_condition(
+                                "Bootstrapped",
+                                "BootstrapCompleted",
+                                "Bootstrap script completed; waiting for kubelet readiness checks to pass",
+                            ),
+                        ],
+                    )
+                    raise kopf.TemporaryError(
+                        f"Post-bootstrap readiness check failed ({failure_reason}, exit {readiness_result.exit_code})",
+                        delay=30,
+                    )
+            else:
+                logger.info(
+                    "SSHMachine %s/%s skipping post-bootstrap readiness check (bootstrapCheckStrategy=none)",
+                    namespace,
+                    name,
                 )
 
     except kopf.TemporaryError:
@@ -1529,18 +1795,42 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     except kopf.PermanentError:
         raise
     except TimeoutError as e:
-        patch.status["failureReason"] = "SSHTimeout"
+        reason = "SSHTimeout"
+        message = str(e)
+        patch.status["failureReason"] = reason
         patch.status["failureMessage"] = f"SSH operation timed out: {e}"
-        patch.status["conditions"] = [
-            _not_ready_condition("SSHTimeout", str(e)),
-        ]
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason=reason,
+            bootstrap_message="Bootstrap execution was interrupted by SSH timeout",
+        )
         raise kopf.TemporaryError(f"SSH timeout: {e}", delay=30) from e
     except Exception as e:
-        patch.status["failureReason"] = "SSHError"
-        patch.status["failureMessage"] = f"SSH connection failed: {e}"
-        patch.status["conditions"] = [
-            _not_ready_condition("SSHError", f"SSH connection failed: {e}"),
-        ]
+        reason = "SSHError"
+        message = f"SSH connection failed: {e}"
+        patch.status["failureReason"] = reason
+        patch.status["failureMessage"] = message
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason=reason,
+            bootstrap_message="Bootstrap execution could not proceed due to SSH error",
+        )
         raise kopf.TemporaryError(f"SSH error: {e}", delay=30) from e
 
     # Success
@@ -1550,9 +1840,32 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     patch.status["addresses"] = [
         {"type": "InternalIP", "address": address},
     ]
-    patch.status["conditions"] = [
-        _ready_condition(f"Machine {address} provisioned with providerID {provider_id}"),
-    ]
+    success_message = f"Machine {address} provisioned with providerID {provider_id}"
+    bootstrap_success_message = "Bootstrap execution and readiness checks completed successfully"
+    success_extras: list[dict] | None = None
+    if bootstrap_check_strategy == BOOTSTRAP_CHECK_STRATEGY_NONE:
+        bootstrap_success_message = (
+            "Bootstrap execution completed; post-bootstrap readiness checks skipped (bootstrapCheckStrategy=none)"
+        )
+        success_extras = [
+            _info_condition(
+                "BootstrapCheckSkipped",
+                "StrategyNone",
+                "Post-bootstrap readiness checks skipped by spec.bootstrapCheckStrategy=none",
+            ),
+        ]
+    patch.status["conditions"] = _machine_lifecycle_conditions(
+        ready=True,
+        ready_reason="Provisioned",
+        ready_message=success_message,
+        infrastructure_ready=True,
+        infrastructure_reason="Provisioned",
+        infrastructure_message=success_message,
+        bootstrap_succeeded=True,
+        bootstrap_reason="BootstrapCompleted",
+        bootstrap_message=bootstrap_success_message,
+        extras=success_extras,
+    )
     # Clear any previous failure state
     patch.status["bootstrapDiagnostics"] = None
     patch.status["failureReason"] = None
@@ -1649,9 +1962,24 @@ async def sshmachine_reconcile_timer(spec, status, name, namespace, meta, patch,
 
 
 @kopf.on.delete(API_GROUP, API_VERSION, "sshmachines")
-async def sshmachine_delete(spec, name, namespace, **_kwargs):
+async def sshmachine_delete(spec, name, namespace, patch=None, **_kwargs):
     """Handle SSHMachine deletion -- cleanup via SSH (kubeadm reset) and release host."""
     logger.info("SSHMachine %s/%s deleting", namespace, name)
+    if patch is not None:
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason="Deleting",
+            ready_message="Infrastructure machine is deleting",
+            infrastructure_ready=False,
+            infrastructure_reason="Deleting",
+            infrastructure_message="Infrastructure machine is deleting",
+            bootstrap_succeeded=False,
+            bootstrap_reason="Deleting",
+            bootstrap_message="Bootstrap lifecycle is terminating due to machine deletion",
+        )
+
     lock = _get_reconcile_lock(namespace, name)
     if lock.locked():
         logger.info("SSHMachine %s/%s waiting for in-flight reconcile before delete cleanup", namespace, name)
