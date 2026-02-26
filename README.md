@@ -41,8 +41,58 @@ Target Hosts (any SSH-reachable server)
 | Kind | Purpose |
 |------|---------|
 | `SSHCluster` | Cluster-level infrastructure (control plane endpoint) |
+| `SSHClusterTemplate` | ClusterClass template for `SSHCluster` objects |
 | `SSHMachine` | Per-machine infrastructure (SSH address, credentials) |
 | `SSHMachineTemplate` | Template for MachineDeployments |
+
+### ClusterClass Template Example
+
+```yaml
+apiVersion: infrastructure.alpininsight.ai/v1beta1
+kind: SSHClusterTemplate
+metadata:
+  name: ssh-cluster-template
+  namespace: default
+spec:
+  template:
+    spec:
+      controlPlaneEndpoint:
+        host: 10.0.0.10
+        port: 6443
+---
+apiVersion: infrastructure.alpininsight.ai/v1beta1
+kind: SSHMachineTemplate
+metadata:
+  name: ssh-worker-template
+  namespace: default
+spec:
+  template:
+    spec:
+      hostSelector:
+        matchLabels:
+          role: worker
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: ssh-clusterclass
+  namespace: default
+spec:
+  infrastructure:
+    ref:
+      apiVersion: infrastructure.alpininsight.ai/v1beta1
+      kind: SSHClusterTemplate
+      name: ssh-cluster-template
+  workers:
+    machineDeployments:
+      - class: default-worker
+        template:
+          infrastructure:
+            ref:
+              apiVersion: infrastructure.alpininsight.ai/v1beta1
+              kind: SSHMachineTemplate
+              name: ssh-worker-template
+```
 
 ## CAPI Contract
 

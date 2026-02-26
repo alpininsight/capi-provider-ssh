@@ -12,7 +12,7 @@ metadata:
 rules:
   # CRDs owned by this provider
   - apiGroups: ["infrastructure.alpininsight.ai"]
-    resources: ["sshclusters", "sshhosts", "sshmachines", "sshmachinetemplates"]
+    resources: ["sshclusters", "sshclustertemplates", "sshhosts", "sshmachines", "sshmachinetemplates"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["infrastructure.alpininsight.ai"]
     resources: ["sshclusters/status", "sshhosts/status", "sshmachines/status"]
@@ -65,7 +65,7 @@ metadata:
     cluster.x-k8s.io/aggregate-to-manager: "true"
 rules:
   - apiGroups: ["infrastructure.alpininsight.ai"]
-    resources: ["sshclusters", "sshhosts", "sshmachines", "sshmachinetemplates"]
+    resources: ["sshclusters", "sshclustertemplates", "sshhosts", "sshmachines", "sshmachinetemplates"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["infrastructure.alpininsight.ai"]
     resources: ["sshclusters/status", "sshhosts/status", "sshmachines/status"]
@@ -79,7 +79,7 @@ metadata:
     kubeadm.controlplane.cluster.x-k8s.io/aggregate-to-manager: "true"
 rules:
   - apiGroups: ["infrastructure.alpininsight.ai"]
-    resources: ["sshclusters", "sshhosts", "sshmachines", "sshmachinetemplates"]
+    resources: ["sshclusters", "sshclustertemplates", "sshhosts", "sshmachines", "sshmachinetemplates"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["infrastructure.alpininsight.ai"]
     resources: ["sshclusters/status", "sshhosts/status", "sshmachines/status"]

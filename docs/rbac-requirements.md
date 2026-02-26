@@ -14,7 +14,7 @@ The reference implementation is in
 
 | API Group | Resources | Verbs | Purpose |
 |-----------|-----------|-------|---------|
-| `infrastructure.alpininsight.ai` | sshclusters, sshhosts, sshmachines, sshmachinetemplates | get, list, watch, create, update, patch, delete | Reconcile owned resources |
+| `infrastructure.alpininsight.ai` | sshclusters, sshclustertemplates, sshhosts, sshmachines, sshmachinetemplates | get, list, watch, create, update, patch, delete | Reconcile owned resources |
 | `infrastructure.alpininsight.ai` | sshclusters/status, sshhosts/status, sshmachines/status | get, update, patch | Update status subresources |
 | `infrastructure.alpininsight.ai` | sshclusters/finalizers, sshmachines/finalizers | update | Manage cleanup finalizers |
 
