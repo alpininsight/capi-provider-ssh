@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **roadmap:** Add dev substrate provisioning objective
 
+### Features
+
+- **api:** Add SSHClusterTemplate CRD for ClusterClass
+
 ### Miscellaneous
 
 - Merge main into develop for release convergence
