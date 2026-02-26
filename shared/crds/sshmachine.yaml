@@ -124,6 +124,16 @@ spec:
                     When true, validates all prerequisites (SSH connectivity,
                     bootstrap data, secrets) but does not execute the bootstrap
                     script.
+                bootstrapCheckStrategy:
+                  type: string
+                  default: ssh
+                  enum:
+                    - ssh
+                    - none
+                  description: >-
+                    Strategy for post-bootstrap host readiness validation.
+                    `ssh` runs kubelet readiness checks via SSH (default).
+                    `none` skips host-side readiness checks after bootstrap execution.
                 remediation:
                   type: object
                   properties:
