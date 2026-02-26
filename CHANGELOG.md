@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 
 - **api:** Add SSHClusterTemplate CRD for ClusterClass
+- **sshmachine:** Add bootstrap check strategy enum
 
 ### Miscellaneous
 
@@ -36,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Styling
 
 - Apply ruff format for teardown test
+- Apply ruff formatting for bootstrap strategy changes
 
 ### Testing
 
