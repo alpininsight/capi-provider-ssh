@@ -163,6 +163,16 @@ certificates and patching kubeadm configuration for external etcd clusters.
 See [docs/external-etcd.md](docs/external-etcd.md) for the Secret format
 contract and configuration reference.
 
+## Bootstrap Check Strategy
+
+`SSHMachine.spec.bootstrapCheckStrategy` controls post-bootstrap host readiness
+validation:
+
+- `ssh` (default): run kubelet readiness checks over SSH after bootstrap script execution.
+- `none`: skip host-side readiness checks and rely on higher-level readiness signals.
+
+Use `ssh` unless you explicitly need to bypass host-side checks.
+
 ## Flux Rollout
 
 If CAPI cluster reconciliation is suspended in Flux, use the explicit rollout

@@ -48,3 +48,27 @@ def test_crd_kustomization_includes_sshclustertemplate() -> None:
     resources = kustomization.get("resources", [])
 
     assert "sshclustertemplate.yaml" in resources
+
+
+def test_sshmachine_crd_bootstrap_check_strategy_enum() -> None:
+    crd = _load_yaml(CRD_DIR / "sshmachine.yaml")
+    spec_properties = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
+    strategy = spec_properties["bootstrapCheckStrategy"]
+
+    assert strategy["type"] == "string"
+    assert strategy["default"] == "ssh"
+    assert sorted(strategy["enum"]) == ["none", "ssh"]
+
+
+def test_sshmachinetemplate_crd_bootstrap_check_strategy_enum() -> None:
+    crd = _load_yaml(CRD_DIR / "sshmachinetemplate.yaml")
+    template_spec_properties = (
+        crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]["template"][
+            "properties"
+        ]["spec"]["properties"]
+    )
+    strategy = template_spec_properties["bootstrapCheckStrategy"]
+
+    assert strategy["type"] == "string"
+    assert strategy["default"] == "ssh"
+    assert sorted(strategy["enum"]) == ["none", "ssh"]

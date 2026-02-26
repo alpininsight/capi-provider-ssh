@@ -439,6 +439,128 @@ class TestSSHMachineReconcile:
             assert "systemctl is-active --quiet kubelet" in readiness_cmd
 
     @pytest.mark.asyncio
+    async def test_bootstrap_with_explicit_ssh_strategy_runs_readiness_check(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        spec = {**sshmachine_spec, "bootstrapCheckStrategy": "ssh"}
+        mock_conn = AsyncMock()
+        mock_conn.execute.side_effect = [
+            SSHResult(exit_code=0, stdout="ok", stderr=""),
+            SSHResult(exit_code=0, stdout="active", stderr=""),
+        ]
+        mock_conn.upload = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value="#!/bin/bash\necho bootstrap",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=spec,
+                status={},
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+
+        assert patch_obj["status"]["ready"] is True
+        assert mock_conn.execute.await_count == 2
+        readiness_cmd = mock_conn.execute.call_args_list[1][0][0]
+        assert "systemctl is-active --quiet kubelet" in readiness_cmd
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_with_none_strategy_skips_readiness_check(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        spec = {**sshmachine_spec, "bootstrapCheckStrategy": "none"}
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=0, stdout="ok", stderr="")
+        mock_conn.upload = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value="#!/bin/bash\necho bootstrap",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=spec,
+                status={},
+                name="m1",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+
+        assert patch_obj["status"]["ready"] is True
+        assert mock_conn.execute.await_count == 1
+        conditions = _conditions_by_type(patch_obj["status"])
+        assert conditions["BootstrapExecSucceeded"]["status"] == "True"
+        assert conditions["BootstrapCheckSkipped"]["reason"] == "StrategyNone"
+
+    @pytest.mark.asyncio
+    async def test_invalid_bootstrap_check_strategy_sets_invalid_configuration_status(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        spec = {**sshmachine_spec, "bootstrapCheckStrategy": "invalid"}
+        with patch(
+            "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+            new_callable=AsyncMock,
+        ) as read_bootstrap:
+            patch_obj = kopf.Patch({})
+            with pytest.raises(kopf.PermanentError, match="spec.bootstrapCheckStrategy must be one of: ssh, none"):
+                await sshmachine_reconcile(
+                    spec=spec,
+                    status={},
+                    name="m1",
+                    namespace="default",
+                    meta=sshmachine_meta_with_owner,
+                    patch=patch_obj,
+                )
+
+        read_bootstrap.assert_not_called()
+        assert patch_obj["status"]["failureReason"] == "InvalidConfiguration"
+        assert patch_obj["status"]["ready"] is False
+        conditions = _conditions_by_type(patch_obj["status"])
+        assert conditions["BootstrapExecSucceeded"]["status"] == "False"
+
+    @pytest.mark.asyncio
     async def test_bootstrap_sentinel_short_circuit_logs_skip(self, sshmachine_spec, sshmachine_meta_with_owner):
         mock_conn = AsyncMock()
         mock_conn.execute.side_effect = [

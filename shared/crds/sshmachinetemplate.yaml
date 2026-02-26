@@ -116,6 +116,16 @@ spec:
                                 keyFile:
                                   type: string
                                   default: /etc/kubernetes/pki/etcd-external/client.key
+                        bootstrapCheckStrategy:
+                          type: string
+                          default: ssh
+                          enum:
+                            - ssh
+                            - none
+                          description: >-
+                            Strategy for post-bootstrap host readiness validation.
+                            `ssh` runs kubelet readiness checks via SSH (default).
+                            `none` skips host-side readiness checks after bootstrap execution.
   scope: Namespaced
   names:
     plural: sshmachinetemplates
