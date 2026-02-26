@@ -62,11 +62,9 @@ def test_sshmachine_crd_bootstrap_check_strategy_enum() -> None:
 
 def test_sshmachinetemplate_crd_bootstrap_check_strategy_enum() -> None:
     crd = _load_yaml(CRD_DIR / "sshmachinetemplate.yaml")
-    template_spec_properties = (
-        crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]["template"][
-            "properties"
-        ]["spec"]["properties"]
-    )
+    template_spec_properties = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"][
+        "properties"
+    ]["template"]["properties"]["spec"]["properties"]
     strategy = template_spec_properties["bootstrapCheckStrategy"]
 
     assert strategy["type"] == "string"

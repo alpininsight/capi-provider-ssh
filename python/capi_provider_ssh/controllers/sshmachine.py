@@ -1845,8 +1845,7 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     success_extras: list[dict] | None = None
     if bootstrap_check_strategy == BOOTSTRAP_CHECK_STRATEGY_NONE:
         bootstrap_success_message = (
-            "Bootstrap execution completed; post-bootstrap readiness checks skipped "
-            "(bootstrapCheckStrategy=none)"
+            "Bootstrap execution completed; post-bootstrap readiness checks skipped (bootstrapCheckStrategy=none)"
         )
         success_extras = [
             _info_condition(
