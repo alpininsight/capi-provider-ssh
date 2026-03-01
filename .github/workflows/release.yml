@@ -29,6 +29,7 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   release:
@@ -101,3 +102,84 @@ jobs:
           echo "### Release v${{ steps.version.outputs.version }} created" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tag: v${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Version is available via GitHub Releases and git tags" >> "$GITHUB_STEP_SUMMARY"
+
+  sync-main-to-develop:
+    name: Sync main back to develop
+    runs-on: ubuntu-latest
+    needs: release
+    if: github.ref_name == 'main' && needs.release.result == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CHANGELOG_BOT_TOKEN != '' && secrets.CHANGELOG_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Create or update sync PR
+        id: sync_pr
+        env:
+          GH_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN != '' && secrets.CHANGELOG_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main develop
+          AHEAD_COUNT="$(git rev-list --count origin/develop..origin/main)"
+          if [ "${AHEAD_COUNT}" -eq 0 ]; then
+            echo "No commits to sync from main into develop."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BRANCH="chore/sync-main-to-develop"
+          git checkout -B "${BRANCH}" origin/main
+          git push --force origin "${BRANCH}"
+
+          PR_NUM="$(gh pr list --state open --head "${BRANCH}" --base develop --json number --jq '.[0].number')"
+          if [ -n "${PR_NUM}" ] && [ "${PR_NUM}" != "null" ]; then
+            echo "Updating existing PR #${PR_NUM}"
+            gh pr edit "${PR_NUM}" \
+              --title "chore(sync): merge main back into develop" \
+              --body "Automated sync PR after a successful release on main."
+          else
+            echo "Creating new sync PR from ${BRANCH} to develop"
+            gh pr create \
+              --base develop \
+              --head "${BRANCH}" \
+              --title "chore(sync): merge main back into develop" \
+              --body "Automated sync PR after a successful release on main."
+            PR_NUM="$(gh pr list --state open --head "${BRANCH}" --base develop --json number --jq '.[0].number')"
+          fi
+
+          if [ -z "${PR_NUM}" ] || [ "${PR_NUM}" = "null" ]; then
+            echo "::error::Could not resolve sync PR number."
+            exit 1
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${PR_NUM}" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge on sync PR
+        if: steps.sync_pr.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN != '' && secrets.CHANGELOG_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR_NUM="${{ steps.sync_pr.outputs.pr_number }}"
+          if gh pr merge "${PR_NUM}" --auto --merge --delete-branch 2>/dev/null; then
+            echo "Auto-merge enabled on sync PR #${PR_NUM}."
+          else
+            echo "Auto-merge unavailable, attempting direct merge..."
+            gh pr merge "${PR_NUM}" --merge --delete-branch
+          fi
+
+      - name: Summary
+        env:
+          SYNC_CHANGED: ${{ steps.sync_pr.outputs.changed }}
+          SYNC_PR_NUMBER: ${{ steps.sync_pr.outputs.pr_number }}
+        run: |
+          echo "### Sync main -> develop" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Sync needed: ${SYNC_CHANGED:-false}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR: ${SYNC_PR_NUMBER:-n/a}" >> "$GITHUB_STEP_SUMMARY"
