@@ -22,6 +22,7 @@ from capi_provider_ssh.controllers.sshmachine import (
     _get_reconcile_lock,
     _has_machine_owner,
     _inject_external_etcd_into_bootstrap_data,
+    _inject_provider_id_into_bootstrap_data,
     _is_already_provisioned,
     _normalize_external_etcd,
     _post_bootstrap_readiness_command,
@@ -750,6 +751,62 @@ runcmd:
         assert "cat <<'__CAPI_BOOTSTRAP_FILE_0__' > /etc/kubernetes/bootstrap-marker" in uploaded_script
         assert "kubeadm join 10.0.0.1:6443" in uploaded_script
         assert patch_obj["status"]["initialization"]["provisioned"] is True
+        assert patch_obj["status"]["ready"] is True
+
+    @pytest.mark.asyncio
+    async def test_reconcile_injects_provider_id_into_kubeadm_cloud_config(
+        self,
+        sshmachine_spec,
+        sshmachine_meta_with_owner,
+    ):
+        cloud_config_bootstrap = """#cloud-config
+write_files:
+- path: /run/kubeadm/kubeadm.yaml
+  owner: root:root
+  permissions: '0600'
+  content: |
+    apiVersion: kubeadm.k8s.io/v1beta4
+    kind: JoinConfiguration
+    nodeRegistration:
+      name: worker-0
+runcmd:
+- kubeadm join --config /run/kubeadm/kubeadm.yaml
+"""
+        mock_conn = AsyncMock()
+        mock_conn.execute.return_value = SSHResult(exit_code=0, stdout="ok", stderr="")
+        mock_conn.upload = AsyncMock()
+        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_conn.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_bootstrap_data",
+                new_callable=AsyncMock,
+                return_value=cloud_config_bootstrap,
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine._read_ssh_key",
+                new_callable=AsyncMock,
+                return_value="fake-key",
+            ),
+            patch(
+                "capi_provider_ssh.controllers.sshmachine.SSHClient.connect",
+                new_callable=AsyncMock,
+                return_value=mock_conn,
+            ),
+        ):
+            patch_obj = kopf.Patch({})
+            await sshmachine_reconcile(
+                spec=sshmachine_spec,
+                status={},
+                name="m-providerid",
+                namespace="default",
+                meta=sshmachine_meta_with_owner,
+                patch=patch_obj,
+            )
+
+        uploaded_script = mock_conn.upload.call_args[0][0]
+        assert "provider-id: ssh://100.64.0.10" in uploaded_script
         assert patch_obj["status"]["ready"] is True
 
     @pytest.mark.asyncio
@@ -1784,6 +1841,39 @@ echo "no kubeadm yaml here"
         with pytest.raises(kopf.PermanentError, match="no kubeadm ClusterConfiguration"):
             _inject_external_etcd_into_bootstrap_data(bootstrap, external)
 
+    def test_inject_provider_id_into_shell_bootstrap_data(self):
+        bootstrap = """#!/bin/bash
+cat > /run/kubeadm/kubeadm.yaml <<'EOF'
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+nodeRegistration:
+  name: cp-0
+EOF
+kubeadm init --config /run/kubeadm/kubeadm.yaml
+"""
+        patched, changed = _inject_provider_id_into_bootstrap_data(bootstrap, "ssh://10.0.0.10")
+        assert changed is True
+        assert "provider-id: ssh://10.0.0.10" in patched
+
+    def test_inject_provider_id_into_cloud_config_bootstrap_data(self):
+        bootstrap = """#cloud-config
+write_files:
+- path: /run/kubeadm/kubeadm.yaml
+  owner: root:root
+  permissions: '0600'
+  content: |
+    apiVersion: kubeadm.k8s.io/v1beta4
+    kind: JoinConfiguration
+    nodeRegistration:
+      name: w-0
+runcmd:
+- kubeadm join --config /run/kubeadm/kubeadm.yaml
+"""
+        patched, changed = _inject_provider_id_into_bootstrap_data(bootstrap, "ssh://10.0.0.20")
+        assert changed is True
+        assert patched.startswith("#cloud-config")
+        assert "provider-id: ssh://10.0.0.20" in patched
+
 
 class TestSSHMachineReboot:
     @pytest.mark.asyncio
@@ -1943,6 +2033,7 @@ kubeadm init --config /run/kubeadm/kubeadm.yaml
         mock_upload_certs.assert_called_once()
         uploaded_script = mock_conn.upload.call_args[0][0]
         assert "etcd-servers: https://10.0.0.10:2379,https://10.0.0.11:2379" in uploaded_script
+        assert "provider-id: ssh://100.64.0.10" in uploaded_script
 
     @pytest.mark.asyncio
     async def test_reboot_command_failure_requeues(self):
