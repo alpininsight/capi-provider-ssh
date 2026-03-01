@@ -328,6 +328,47 @@ def _patch_external_etcd_in_kubeadm_yaml(yaml_text: str, external_etcd: dict) ->
     return rendered, saw_cluster_configuration, True
 
 
+def _patch_provider_id_in_kubeadm_yaml(yaml_text: str, provider_id: str) -> tuple[str, bool, bool]:
+    """Patch kubeadm Init/JoinConfiguration nodeRegistration kubelet provider-id."""
+    try:
+        docs = [doc for doc in yaml.safe_load_all(yaml_text) if doc is not None]
+    except yaml.YAMLError:
+        return yaml_text, False, False
+
+    if not docs:
+        return yaml_text, False, False
+
+    saw_node_registration = False
+    changed = False
+    for doc in docs:
+        if not isinstance(doc, dict):
+            continue
+        if doc.get("kind") not in {"InitConfiguration", "JoinConfiguration"}:
+            continue
+
+        saw_node_registration = True
+        node_registration = doc.setdefault("nodeRegistration", {})
+        if not isinstance(node_registration, dict):
+            raise kopf.PermanentError(
+                f"kubeadm {doc.get('kind')} nodeRegistration must be a mapping",
+            )
+        kubelet_extra_args = node_registration.setdefault("kubeletExtraArgs", {})
+        if not isinstance(kubelet_extra_args, dict):
+            raise kopf.PermanentError(
+                f"kubeadm {doc.get('kind')} nodeRegistration.kubeletExtraArgs must be a mapping",
+            )
+
+        if kubelet_extra_args.get("provider-id") != provider_id:
+            kubelet_extra_args["provider-id"] = provider_id
+            changed = True
+
+    if not changed:
+        return yaml_text, saw_node_registration, False
+
+    rendered = yaml.safe_dump_all(docs, sort_keys=False).rstrip("\n")
+    return rendered, saw_node_registration, True
+
+
 def _detect_bootstrap_format(bootstrap_data: str) -> str:
     """Detect bootstrap payload format (cloud-config or shell)."""
     for line in bootstrap_data.splitlines():
@@ -722,6 +763,88 @@ def _inject_external_etcd_into_bootstrap_data(bootstrap_data: str, external_etcd
     if bootstrap_format == "cloud-config":
         return _inject_external_etcd_into_cloud_config_bootstrap_data(bootstrap_data, external_etcd)
     return _inject_external_etcd_into_shell_bootstrap_data(bootstrap_data, external_etcd)
+
+
+def _inject_provider_id_into_shell_bootstrap_data(bootstrap_data: str, provider_id: str) -> tuple[str, bool]:
+    """Inject kubelet provider-id into shell bootstrap kubeadm heredocs."""
+    lines = bootstrap_data.splitlines()
+    output: list[str] = []
+    idx = 0
+    changed_any = False
+
+    while idx < len(lines):
+        line = lines[idx]
+        heredoc = _parse_heredoc_start(line)
+        if not heredoc:
+            output.append(line)
+            idx += 1
+            continue
+
+        path, tag = heredoc
+        output.append(line)
+        idx += 1
+
+        body_lines: list[str] = []
+        while idx < len(lines) and lines[idx].strip() != tag:
+            body_lines.append(lines[idx])
+            idx += 1
+
+        if idx >= len(lines):
+            output.extend(body_lines)
+            break
+
+        if "kubeadm" in path and path.endswith((".yaml", ".yml")):
+            body_text = "\n".join(body_lines)
+            patched_text, saw_here, changed_here = _patch_provider_id_in_kubeadm_yaml(body_text, provider_id)
+            changed_any = changed_any or changed_here
+            if saw_here:
+                body_lines = patched_text.splitlines()
+
+        output.extend(body_lines)
+        output.append(lines[idx])
+        idx += 1
+
+    if not changed_any:
+        return bootstrap_data, False
+
+    rendered = "\n".join(output)
+    if bootstrap_data.endswith("\n"):
+        rendered += "\n"
+    return rendered, True
+
+
+def _inject_provider_id_into_cloud_config_bootstrap_data(bootstrap_data: str, provider_id: str) -> tuple[str, bool]:
+    """Inject kubelet provider-id into cloud-config kubeadm write_files payloads."""
+    config = _parse_cloud_config(bootstrap_data)
+    write_files = config.get("write_files", [])
+
+    changed_any = False
+    for idx, entry in enumerate(write_files):
+        path = entry.get("path")
+        if not isinstance(path, str) or "kubeadm" not in path or not path.endswith((".yaml", ".yml")):
+            continue
+
+        content = _decode_cloud_write_file_content(entry, idx)
+        patched_text, saw_here, changed_here = _patch_provider_id_in_kubeadm_yaml(content, provider_id)
+        changed_any = changed_any or changed_here
+        if saw_here:
+            _store_cloud_write_file_content(entry, patched_text)
+
+    if not changed_any:
+        return bootstrap_data, False
+
+    rendered = "#cloud-config\n" + yaml.safe_dump(config, sort_keys=False).rstrip("\n")
+    if bootstrap_data.endswith("\n"):
+        rendered += "\n"
+    return rendered, True
+
+
+def _inject_provider_id_into_bootstrap_data(bootstrap_data: str, provider_id: str) -> tuple[str, bool]:
+    """Inject kubelet provider-id into shell or cloud-config bootstrap payload."""
+    bootstrap_format = _detect_bootstrap_format(bootstrap_data)
+    if bootstrap_format == "cloud-config":
+        return _inject_provider_id_into_cloud_config_bootstrap_data(bootstrap_data, provider_id)
+    return _inject_provider_id_into_shell_bootstrap_data(bootstrap_data, provider_id)
 
 
 async def _upload_external_etcd_certs(conn, namespace: str, external_etcd: dict) -> None:
@@ -1490,6 +1613,35 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
             bootstrap_message=message,
         )
         raise kopf.TemporaryError("Bootstrap data not ready", delay=15)
+
+    try:
+        bootstrap_data, provider_id_changed = _inject_provider_id_into_bootstrap_data(bootstrap_data, provider_id)
+        if provider_id_changed:
+            logger.info(
+                "SSHMachine %s/%s patched bootstrap data with kubelet provider-id %s",
+                namespace,
+                name,
+                provider_id,
+            )
+    except kopf.PermanentError as e:
+        reason = "ProviderIDWiringError"
+        message = str(e)
+        patch.status["failureReason"] = reason
+        patch.status["failureMessage"] = message
+        patch.status["ready"] = False
+        patch.status["initialization"] = {"provisioned": False}
+        patch.status["conditions"] = _machine_lifecycle_conditions(
+            ready=False,
+            ready_reason=reason,
+            ready_message=message,
+            infrastructure_ready=False,
+            infrastructure_reason=reason,
+            infrastructure_message=message,
+            bootstrap_succeeded=False,
+            bootstrap_reason="BootstrapNotStarted",
+            bootstrap_message="Bootstrap has not started due to providerID wiring error",
+        )
+        raise
 
     # Optional external-etcd wiring and cert distribution configuration.
     try:
