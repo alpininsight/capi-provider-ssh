@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Satisfy ruff line-length for #196
 - **sshmachine:** Keep ready in every provisioned reconcile patch
 - **sshmachine:** Inject kubelet provider-id into bootstrap
+- **ci:** Sync main back into develop after release 
 
 ### Documentation
 
