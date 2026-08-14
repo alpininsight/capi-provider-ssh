@@ -27,4 +27,4 @@ LABEL org.opencontainers.image.vendor="Alpin Insight Solutions" \
       org.opencontainers.image.source="https://github.com/alpininsight/capi-provider-ssh" \
       org.opencontainers.image.description="Cluster API infrastructure provider for SSH-reachable hosts"
 
-ENTRYPOINT ["kopf", "run", "--standalone", "--liveness=http://0.0.0.0:8080/healthz", "-m", "capi_provider_ssh.main"]
+ENTRYPOINT ["kopf", "run", "--all-namespaces", "--standalone", "--liveness=http://0.0.0.0:8080/healthz", "-m", "capi_provider_ssh.main"]
