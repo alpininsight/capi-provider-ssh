@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **sshmachine:** Inject kubelet provider-id into bootstrap
 - **ci:** Sync main back into develop after release 
 - **ci:** Enforce auto-merge for changelog PRs 
+- **runtime:** Declare Kopf cluster scope
 
 ### Documentation
 
