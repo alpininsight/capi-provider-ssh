@@ -1,22 +1,10 @@
 ---
-# =============================================================================
-# Release Workflow - Auto-versioning with GitVersion
-# Triggers on push to main branch, creates releases automatically
-# =============================================================================
-#
-# How it works:
-#   1. Merge PR to main
-#   2. GitVersion calculates semantic version from commit history
-#   3. If version tag doesn't exist, creates GitHub Release automatically
-#
-# Version bumping (via commit messages):
-#   - feat: → minor version bump (0.1.0 → 0.2.0)
-#   - fix:  → patch version bump (0.1.0 → 0.1.1)
-#   - BREAKING CHANGE: → major version bump (0.1.0 → 1.0.0)
-#
-# =============================================================================
-
 name: Release
+
+# Public-repository exception: GitHub does not allow this public caller to use
+# the private organization workflow catalog. Keep this implementation aligned
+# with .github-private/reusable-release.yml until a public reusable backend
+# exists. Access behavior was verified in capi-provider-ssh PR #228.
 
 on:
   push:
@@ -28,158 +16,104 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release:
-    name: Create GitHub Release
+    name: Release
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+        with:
+          dotnet-version: 8.0.x
 
       - name: Set up GitVersion
-        uses: gittools/actions/gitversion/setup@v3.1.2
+        uses: gittools/actions/gitversion/setup@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
         with:
-          versionSpec: '5.x'
+          versionSpec: 6.8.x
           preferLatestVersion: true
 
       - name: Calculate version
         id: gitversion
-        uses: gittools/actions/gitversion/execute@v3.1.2
+        uses: gittools/actions/gitversion/execute@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
         with:
-          useConfigFile: true
           configFilePath: GitVersion.yml
           overrideConfig: |
             update-build-number=false
 
-      - name: Display and validate version info
+      - name: Validate version metadata
         id: version
+        env:
+          VERSION: ${{ steps.gitversion.outputs.MajorMinorPatch }}
         run: |
-          VERSION="${{ steps.gitversion.outputs.MajorMinorPatch }}"
-          echo "MajorMinorPatch: $VERSION"
-          echo "SemVer: ${{ steps.gitversion.outputs.SemVer }}"
-          echo "FullSemVer: ${{ steps.gitversion.outputs.FullSemVer }}"
-
-          # Validate version format (X.Y.Z)
+          set -euo pipefail
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Invalid version format: '$VERSION'. Expected X.Y.Z"
+            echo "::error::Invalid GitVersion MajorMinorPatch '$VERSION'"
             exit 1
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
-          echo "version=$VERSION" >> "${GITHUB_OUTPUT}"
-
-      - name: Check if tag exists
-        id: tagcheck
+      - name: Check if GitHub Release already exists
+        id: releasecheck
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          if git rev-parse "${TAG}" >/dev/null 2>&1; then
-            echo "exists=true" >> "${GITHUB_OUTPUT}"
-            echo "Tag ${TAG} already exists, skipping release"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "${GITHUB_OUTPUT}"
-            echo "Tag ${TAG} does not exist, will create release"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create GitHub Release
-        if: steps.tagcheck.outputs.exists != 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
-          target_commitish: ${{ github.sha }}
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-
-      - name: Summary
-        if: steps.tagcheck.outputs.exists != 'true'
-        run: |
-          echo "### Release v${{ steps.version.outputs.version }} created" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Tag: v${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Version is available via GitHub Releases and git tags" >> "$GITHUB_STEP_SUMMARY"
-
-  sync-main-to-develop:
-    name: Sync main back to develop
-    runs-on: ubuntu-latest
-    needs: release
-    if: github.ref_name == 'main' && needs.release.result == 'success'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.CHANGELOG_BOT_TOKEN != '' && secrets.CHANGELOG_BOT_TOKEN || secrets.GITHUB_TOKEN }}
-
-      - name: Create or update sync PR
-        id: sync_pr
+        if: steps.releasecheck.outputs.exists != 'true'
         env:
-          GH_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN != '' && secrets.CHANGELOG_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TARGET: ${{ github.sha }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$TARGET" --title "$TAG" --generate-notes
+
+      - name: Capture release state
+        id: release_state
+        env:
+          EXISTS: ${{ steps.releasecheck.outputs.exists }}
         run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git fetch origin main develop
-          AHEAD_COUNT="$(git rev-list --count origin/develop..origin/main)"
-          if [ "${AHEAD_COUNT}" -eq 0 ]; then
-            echo "No commits to sync from main into develop."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          BRANCH="chore/sync-main-to-develop"
-          git checkout -B "${BRANCH}" origin/main
-          git push --force origin "${BRANCH}"
-
-          PR_NUM="$(gh pr list --state open --head "${BRANCH}" --base develop --json number --jq '.[0].number')"
-          if [ -n "${PR_NUM}" ] && [ "${PR_NUM}" != "null" ]; then
-            echo "Updating existing PR #${PR_NUM}"
-            gh pr edit "${PR_NUM}" \
-              --title "chore(sync): merge main back into develop" \
-              --body "Automated sync PR after a successful release on main."
+          if [[ "$EXISTS" == "true" ]]; then
+            echo "released=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Creating new sync PR from ${BRANCH} to develop"
-            gh pr create \
-              --base develop \
-              --head "${BRANCH}" \
-              --title "chore(sync): merge main back into develop" \
-              --body "Automated sync PR after a successful release on main."
-            PR_NUM="$(gh pr list --state open --head "${BRANCH}" --base develop --json number --jq '.[0].number')"
+            echo "released=true" >> "$GITHUB_OUTPUT"
           fi
 
-          if [ -z "${PR_NUM}" ] || [ "${PR_NUM}" = "null" ]; then
-            echo "::error::Could not resolve sync PR number."
-            exit 1
-          fi
-
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "pr_number=${PR_NUM}" >> "$GITHUB_OUTPUT"
-
-      - name: Enable auto-merge on sync PR
-        if: steps.sync_pr.outputs.changed == 'true'
+      - name: Release summary
         env:
-          GH_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN != '' && secrets.CHANGELOG_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          RELEASED: ${{ steps.release_state.outputs.released }}
+          SEMVER: ${{ steps.gitversion.outputs.SemVer }}
+          FULL_SEMVER: ${{ steps.gitversion.outputs.FullSemVer }}
         run: |
-          set -euo pipefail
-          PR_NUM="${{ steps.sync_pr.outputs.pr_number }}"
-          if gh pr merge "${PR_NUM}" --auto --merge --delete-branch 2>/dev/null; then
-            echo "Auto-merge enabled on sync PR #${PR_NUM}."
-          else
-            echo "Auto-merge unavailable, attempting direct merge..."
-            gh pr merge "${PR_NUM}" --merge --delete-branch
-          fi
-
-      - name: Summary
-        env:
-          SYNC_CHANGED: ${{ steps.sync_pr.outputs.changed }}
-          SYNC_PR_NUMBER: ${{ steps.sync_pr.outputs.pr_number }}
-        run: |
-          echo "### Sync main -> develop" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Sync needed: ${SYNC_CHANGED:-false}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- PR: ${SYNC_PR_NUMBER:-n/a}" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## GitVersion Release"
+            echo ""
+            echo "| Attribute | Value |"
+            echo "|-----------|-------|"
+            echo "| Version | $VERSION |"
+            echo "| Tag | $TAG |"
+            echo "| SemVer | $SEMVER |"
+            echo "| FullSemVer | $FULL_SEMVER |"
+            echo "| Created release | $RELEASED |"
+          } >> "$GITHUB_STEP_SUMMARY"

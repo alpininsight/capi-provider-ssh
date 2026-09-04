@@ -1,5 +1,10 @@
 ---
 # =============================================================================
+
+# Public-repository exception: GitHub does not allow this public caller to use
+# the private organization workflow catalog. Keep this implementation aligned
+# with .github-private/changelog-reusable.yml until a public reusable backend
+# exists. Access behavior was verified in capi-provider-ssh PR #228.
 # Changelog Workflow - Auto-generate CHANGELOG.md on develop
 # =============================================================================
 
@@ -28,14 +33,14 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # zizmor: ignore[artipacked] v7; authenticated push is required
         with:
           fetch-depth: 0
           fetch-tags: true
           token: ${{ secrets.CHANGELOG_BOT_TOKEN != '' && secrets.CHANGELOG_BOT_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b # v2.87.4
         with:
           tool: git-cliff@2.7.0
 
@@ -104,9 +109,9 @@ jobs:
         if: steps.generate.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN }}
+          PR_NUM: ${{ steps.pr.outputs.pr_number }}
         run: |
           set -euo pipefail
-          PR_NUM="${{ steps.pr.outputs.pr_number }}"
           STATE="$(gh pr view "$PR_NUM" --json state --jq '.state')"
           if [ "$STATE" != "OPEN" ]; then
             echo "PR #$PR_NUM is $STATE; skipping merge."
@@ -121,6 +126,8 @@ jobs:
           fi
 
       - name: Summary
+        env:
+          CHANGED: ${{ steps.generate.outputs.changed }}
         run: |
           echo "### Changelog workflow result" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Changed: ${{ steps.generate.outputs.changed }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Changed: $CHANGED" >> "$GITHUB_STEP_SUMMARY"

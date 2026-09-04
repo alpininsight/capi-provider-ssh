@@ -21,25 +21,29 @@ jobs:
         working-directory: python
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev
 
       - name: Write SSH private key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.E2E_SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.E2E_SSH_PRIVATE_KEY }}" > ~/.ssh/e2e_key
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/e2e_key
           chmod 600 ~/.ssh/e2e_key
 
       - name: Run E2E SSH tests

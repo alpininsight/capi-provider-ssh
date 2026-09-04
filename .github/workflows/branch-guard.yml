@@ -4,8 +4,7 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, edited]
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   validate-source-target:
