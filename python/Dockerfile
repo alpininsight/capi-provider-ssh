@@ -9,8 +9,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock* README.md ./
 COPY capi_provider_ssh/ capi_provider_ssh/
 
-# Install production dependencies and the package itself
-RUN uv sync --no-dev --no-editable
+# Install only locked production dependencies. Disabling uv's persistent cache
+# keeps transient build tooling out of the runtime image and its SBOM.
+RUN uv sync --frozen --no-cache --no-dev --no-editable
 
 # Use the virtualenv created at build time; avoid runtime `uv run` cache writes.
 ENV PATH="/app/.venv/bin:${PATH}"
