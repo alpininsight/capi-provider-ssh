@@ -5,8 +5,6 @@ repository.
 
 ## Contents
 
-- `centralized-workflows.md`: Standardized GitHub Actions workflows and release
-  automation conventions.
 - `itsm-change-record-standard.md`: Enterprise-grade change record model for
   provider repositories, with ISO/ITIL source mapping.
 - `iso20000-service-continuity-research.md`: Research summary on publicly
