@@ -47,6 +47,11 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
 
+      - name: Locate scanned build-package metadata
+        run: |
+          docker run --rm --entrypoint sh capi-provider-ssh-python:ci -c \
+            "find / -xdev -type d \( -name 'msgpack-*.dist-info' -o -name 'setuptools-*.dist-info' \) -print 2>/dev/null"
+
       - name: Scan validation image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
