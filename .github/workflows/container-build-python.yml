@@ -58,9 +58,22 @@ jobs:
           image-ref: capi-provider-ssh-python:ci
           version: v0.74.0
           severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
-          format: table
+          format: json
+          output: trivy-results.json
+
+      - name: Report scanned vulnerability targets
+        run: |
+          jq -r '
+            .Results[]
+            | select(.Vulnerabilities != null)
+            | .Target as $target
+            | .Vulnerabilities[]
+            | [$target, .PkgName, .InstalledVersion, .FixedVersion, .VulnerabilityID]
+            | @tsv
+          ' trivy-results.json
+          test "$(jq '[.Results[].Vulnerabilities // [] | length] | add' trivy-results.json)" -eq 0
 
   build-and-push:
     name: Build and publish Python container
