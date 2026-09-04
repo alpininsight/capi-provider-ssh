@@ -49,7 +49,7 @@ jobs:
 
       - name: Locate scanned build-package metadata
         run: |
-          docker run --rm --entrypoint sh capi-provider-ssh-python:ci -c \
+          docker run --rm --user 0:0 --entrypoint sh capi-provider-ssh-python:ci -c \
             "find / -xdev -type d \( -name 'msgpack-*.dist-info' -o -name 'setuptools-*.dist-info' \) -print 2>/dev/null"
 
       - name: Scan validation image
