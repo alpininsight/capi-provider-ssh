@@ -52,6 +52,15 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
 
+      - name: Verify installed runtime and removed package installers
+        run: |
+          for interpreter in /usr/local/bin/python /app/.venv/bin/python; do
+            docker run --rm --entrypoint "$interpreter" capi-provider-ssh-python:ci \
+              -c 'import importlib.util; assert importlib.util.find_spec("pip") is None; assert importlib.util.find_spec("ensurepip") is None'
+          done
+          docker run --rm --entrypoint python capi-provider-ssh-python:ci \
+            -c 'import sys, asyncssh, kopf, kubernetes, capi_provider_ssh; print(sys.version)'
+
       - name: Scan validation image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
