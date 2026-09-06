@@ -61,6 +61,25 @@ two consecutive failures. Readiness does not guarantee that every resource
 handler or watch is progressing; the lifecycle/failover tests and observed
 reconciliation remain separate acceptance evidence.
 
+The controller requests **128 MiB** and permits bursts up to **512 MiB**. This
+is Kubernetes **Burstable** QoS: the scheduler accounts for the request; the
+container uses additional available RAM only as needed, up to the fixed limit.
+Automatically resizing the request/limit is a separate Vertical Pod Autoscaler
+deployment, not a property of a higher limit.
+
+The in-cluster exec path uses a small standard-library HTTPS client. It reads the
+projected CA/token on each call, validates the server certificate and hostname,
+does not follow redirects or proxies, and caps responses at 1 MiB. Explicit local
+kubeconfigs retain the normal SDK/auth-plugin path. Do not reintroduce the full
+generated SDK into the pod probe: an overlapping probe and diagnostic can share
+the operator's cgroup and trigger an OOM kill. The Kind lane checks concurrent
+probes, zero cgroup OOM kills and unchanged operator restart counts under the
+declared resource budget.
+
+Resource behavior: [Kubernetes requests and limits](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/),
+[Burstable QoS](https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/#burstable),
+[Vertical Pod Autoscaling](https://kubernetes.io/docs/concepts/workloads/autoscaling/vertical-pod-autoscale/).
+
 Check every replica, rather than one reachable health endpoint:
 
 ```bash
