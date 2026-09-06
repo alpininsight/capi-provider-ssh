@@ -7,7 +7,7 @@ license = "MPL-2.0"
 requires-python = ">=3.13"
 dependencies = [
     "kopf>=1.37,<2",
-    "kubernetes>=32,<33",
+    "kubernetes>=32,<37",
     "asyncssh>=2.20,<3",
 ]
 
