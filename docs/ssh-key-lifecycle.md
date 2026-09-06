@@ -70,3 +70,20 @@ If validation fails:
    Secret name.
 2. Confirm probes/reconciliations are healthy again.
 3. Investigate key distribution before retrying rotation.
+
+## Independent server identity
+
+Client authentication and server identity are separate Secrets. Every direct
+SSHMachine or selected SSHHost must also reference `sshHostKeyRef`; the default
+Secret data key is `known_hosts`. Create `verified-ssh-hosts` in the same namespace
+from independently verified OpenSSH entries before applying the examples:
+
+```bash
+kubectl --kubeconfig "$MANAGEMENT_KUBECONFIG" -n "$NAMESPACE" create secret generic verified-ssh-hosts \
+  --from-file=known_hosts=./independently-verified-known_hosts
+```
+
+The file must come from a trusted provisioning/console channel. A scan of the
+same untrusted SSH endpoint is insufficient. Keep private keys and trust material
+out of plain Git; use the existing encrypted/External Secrets delivery path.
+See [operations](operations.md) for rotation and legacy ownership migration.

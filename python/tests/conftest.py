@@ -135,3 +135,12 @@ def sshhost_items():
             },
         ],
     }
+
+
+def pytest_collection_modifyitems(config, items):
+    import os
+
+    if os.environ.get("KIND_LIFECYCLE_TESTS") != "1" and config.getoption("-m", default="") != "kind":
+        for item in items:
+            if "kind" in item.keywords:
+                item.add_marker(pytest.mark.skip(reason="select the explicit disposable Kind lifecycle lane"))

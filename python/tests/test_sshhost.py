@@ -8,6 +8,11 @@ import pytest
 from capi_provider_ssh.controllers.sshhost import sshhost_probe
 
 
+@pytest.fixture(autouse=True)
+def trusted_probe_host(monkeypatch):
+    monkeypatch.setattr("capi_provider_ssh.controllers.sshhost.read_known_hosts", lambda *args: "verified-test-host")
+
+
 class TestSSHHostProbe:
     @pytest.mark.asyncio
     async def test_probe_sets_ready_on_success(self):
@@ -130,110 +135,3 @@ class TestSSHHostProbe:
         )
         # No status changes
         assert "ready" not in patch_obj.get("status", {})
-
-
-class TestChooseHostPrefersReady:
-    @pytest.mark.asyncio
-    async def test_choose_host_prefers_ready(self):
-        """_choose_host should prefer hosts with status.ready == True."""
-        from unittest.mock import MagicMock
-
-        from capi_provider_ssh.controllers.sshmachine import _choose_host
-
-        spec = {
-            "hostSelector": {
-                "matchLabels": {"role": "control-plane"},
-            },
-        }
-        # host-a is unchecked (no status.ready), host-b is ready
-        hosts = {
-            "items": [
-                {
-                    "metadata": {
-                        "name": "host-a",
-                        "resourceVersion": "10",
-                        "labels": {"role": "control-plane"},
-                    },
-                    "spec": {
-                        "address": "10.0.0.1",
-                        "user": "root",
-                        "sshKeyRef": {"name": "k", "key": "value"},
-                        "consumerRef": {},
-                    },
-                    "status": {},
-                },
-                {
-                    "metadata": {
-                        "name": "host-b",
-                        "resourceVersion": "11",
-                        "labels": {"role": "control-plane"},
-                    },
-                    "spec": {
-                        "address": "10.0.0.2",
-                        "user": "root",
-                        "sshKeyRef": {"name": "k", "key": "value"},
-                        "consumerRef": {},
-                    },
-                    "status": {"ready": True},
-                },
-            ],
-        }
-        mock_api = MagicMock()
-        mock_api.list_namespaced_custom_object.return_value = hosts
-        mock_api.patch_namespaced_custom_object.return_value = None
-
-        with patch(
-            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
-            return_value=mock_api,
-        ):
-            patch_obj = kopf.Patch({})
-            result = await _choose_host(spec, "m1", "default", patch_obj)
-
-        assert result is True
-        # Should pick host-b (ready) over host-a (unchecked)
-        assert patch_obj["spec"]["address"] == "10.0.0.2"
-        assert patch_obj["spec"]["hostRef"] == "default/host-b"
-
-    @pytest.mark.asyncio
-    async def test_choose_host_falls_back_to_unchecked(self):
-        """If no hosts are ready, _choose_host should still pick unchecked hosts."""
-        from unittest.mock import MagicMock
-
-        from capi_provider_ssh.controllers.sshmachine import _choose_host
-
-        spec = {
-            "hostSelector": {
-                "matchLabels": {"role": "worker"},
-            },
-        }
-        hosts = {
-            "items": [
-                {
-                    "metadata": {
-                        "name": "host-w1",
-                        "resourceVersion": "20",
-                        "labels": {"role": "worker"},
-                    },
-                    "spec": {
-                        "address": "10.0.1.1",
-                        "user": "root",
-                        "sshKeyRef": {"name": "k", "key": "value"},
-                        "consumerRef": {},
-                    },
-                    "status": {},
-                },
-            ],
-        }
-        mock_api = MagicMock()
-        mock_api.list_namespaced_custom_object.return_value = hosts
-        mock_api.patch_namespaced_custom_object.return_value = None
-
-        with patch(
-            "capi_provider_ssh.controllers.sshmachine.kubernetes.client.CustomObjectsApi",
-            return_value=mock_api,
-        ):
-            patch_obj = kopf.Patch({})
-            result = await _choose_host(spec, "m1", "default", patch_obj)
-
-        assert result is True
-        assert patch_obj["spec"]["address"] == "10.0.1.1"

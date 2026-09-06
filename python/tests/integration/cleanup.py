@@ -92,39 +92,27 @@ def teardown_test_namespace(
             ("sshmachines", SSH_API_GROUP, SSH_API_VERSION),
             ("sshclusters", SSH_API_GROUP, SSH_API_VERSION),
             ("kubeadmconfigs", BOOTSTRAP_API_GROUP, BOOTSTRAP_API_VERSION),
+            ("clusters", CAPI_API_GROUP, CAPI_API_VERSION),
         ]
 
         for plural, group, version in resources:
+            # Wait for CAPI drain and provider cleanup before sweeping dependants.
             deleted_resources[plural] = _delete_custom_objects(custom_api, namespace, group, version, plural)
-
-        deleted_resources["secrets"] = _delete_test_secrets(core_api, namespace)
-
-        for plural, group, version in resources:
             if not _wait_for_absence(
                 custom_api,
                 namespace=namespace,
                 group=group,
                 version=version,
                 plural=plural,
-                timeout_seconds=cfg.soft_timeout_seconds,
+                timeout_seconds=cfg.hard_timeout_seconds,
                 poll_interval_seconds=cfg.poll_interval_seconds,
             ):
-                remediated_finalizers += _clear_stuck_finalizers(
-                    custom_api,
-                    namespace=namespace,
-                    group=group,
-                    version=version,
-                    plural=plural,
+                raise AssertionError(
+                    f"Cleanup of {plural} in {namespace} did not complete; "
+                    "finalizers, namespace and SSH Secrets are preserved for investigation"
                 )
-                _wait_for_absence(
-                    custom_api,
-                    namespace=namespace,
-                    group=group,
-                    version=version,
-                    plural=plural,
-                    timeout_seconds=cfg.soft_timeout_seconds,
-                    poll_interval_seconds=cfg.poll_interval_seconds,
-                )
+
+        deleted_resources["secrets"] = _delete_test_secrets(core_api, namespace)
 
         _delete_namespace(core_api, namespace)
         _wait_for_namespace_absence(
@@ -362,42 +350,6 @@ def _wait_for_absence(
             return True
         time.sleep(poll_interval_seconds)
     return False
-
-
-def _clear_stuck_finalizers(
-    custom_api: kubernetes.client.CustomObjectsApi,
-    namespace: str,
-    group: str,
-    version: str,
-    plural: str,
-) -> int:
-    patched = 0
-    for item in _list_custom_objects(custom_api, namespace, group, version, plural):
-        metadata = item.get("metadata", {})
-        name = metadata.get("name")
-        if not name:
-            continue
-        finalizers = list(metadata.get("finalizers") or [])
-        deletion_ts = metadata.get("deletionTimestamp")
-        if not finalizers or not deletion_ts:
-            continue
-        custom_api.patch_namespaced_custom_object(
-            group=group,
-            version=version,
-            namespace=namespace,
-            plural=plural,
-            name=name,
-            body={
-                "metadata": {
-                    "finalizers": [],
-                    "annotations": {
-                        "capi-provider-ssh.test/finalizer-remediated-at": str(int(time.time())),
-                    },
-                }
-            },
-        )
-        patched += 1
-    return patched
 
 
 def _list_secrets(core_api: kubernetes.client.CoreV1Api, namespace: str):

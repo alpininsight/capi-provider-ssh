@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: capi-provider-ssh-controller
+  namespace: capi-provider-ssh-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: capi-provider-ssh
+      app.kubernetes.io/component: controller

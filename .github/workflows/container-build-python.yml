@@ -10,6 +10,11 @@ on:
   pull_request:
     branches: [develop, main]
   workflow_dispatch:
+    inputs:
+      publish_candidate:
+        description: Publish an immutable SHA candidate from a reviewed work branch
+        type: boolean
+        default: false
 
 concurrency:
   group: container-python-${{ github.ref }}
@@ -57,10 +62,53 @@ jobs:
           ignore-unfixed: true
           format: table
 
+  version:
+    name: Validate release version calculation
+    runs-on: ubuntu-latest
+    outputs:
+      major_minor_patch: ${{ steps.gitversion.outputs.MajorMinorPatch }}
+      semver: ${{ steps.gitversion.outputs.SemVer }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Set up GitVersion
+        uses: gittools/actions/gitversion/setup@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
+        with:
+          versionSpec: 6.8.x
+          preferLatestVersion: true
+
+      - name: Calculate version
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
+        with:
+          configFilePath: GitVersion.yml
+          overrideConfig: |
+            update-build-number=false
+
+      - name: Reject unresolved labels and invalid version tags
+        env:
+          SEMVER: ${{ steps.gitversion.outputs.SemVer }}
+        run: |
+          [[ "$SEMVER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+
   build-and-push:
     name: Build and publish Python container
-    if: github.event_name == 'push'
-    needs: validate
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_candidate &&
+       github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop')
+    needs: [validate, version]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -72,27 +120,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up GitVersion
-        uses: gittools/actions/gitversion/setup@8fedf8a6f6cec22c9eaa66ee693f5b1f315dcbdd # v3.1.2
-        with:
-          versionSpec: '5.x'
-          preferLatestVersion: true
-
-      - name: Calculate version
-        id: gitversion
-        uses: gittools/actions/gitversion/execute@8fedf8a6f6cec22c9eaa66ee693f5b1f315dcbdd # v3.1.2
-        with:
-          useConfigFile: true
-          configFilePath: GitVersion.yml
-          overrideConfig: |
-            update-build-number=false
-
       - name: Determine version tag
         id: version
         env:
           BUILD_REF: ${{ github.ref }}
-          MAJOR_MINOR_PATCH: ${{ steps.gitversion.outputs.MajorMinorPatch }}
-          SEMVER: ${{ steps.gitversion.outputs.SemVer }}
+          MAJOR_MINOR_PATCH: ${{ needs.version.outputs.major_minor_patch }}
+          SEMVER: ${{ needs.version.outputs.semver }}
         run: |
           if [[ "$BUILD_REF" == "refs/heads/main" ]]; then
             TAG="v${MAJOR_MINOR_PATCH}"
@@ -128,7 +161,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=sha,prefix=sha-,format=short
+            type=sha,prefix=sha-,format=long
             type=ref,event=pr
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
             type=raw,value=${{ steps.version.outputs.tag }},enable=${{ steps.version.outputs.tag != '' }}

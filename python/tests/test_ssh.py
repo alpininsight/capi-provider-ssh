@@ -65,11 +65,13 @@ class TestSSHClient:
         raw_conn = MagicMock()
         connect_call = object()
         imported_key = object()
+        trusted_hosts = object()
         wait_for_mock = AsyncMock(return_value=raw_conn)
 
         with (
             patch("capi_provider_ssh.ssh.asyncssh.import_private_key", return_value=imported_key) as import_key,
             patch("capi_provider_ssh.ssh.asyncssh.connect", return_value=connect_call) as connect,
+            patch("capi_provider_ssh.ssh.asyncssh.import_known_hosts", return_value=trusted_hosts),
             patch("capi_provider_ssh.ssh.asyncio.wait_for", wait_for_mock),
         ):
             conn = await SSHClient.connect(
@@ -77,6 +79,7 @@ class TestSSHClient:
                 port=2222,
                 user="admin",
                 key="fake-private-key",
+                known_hosts="verified-host-key",
                 timeout=9,
             )
 
@@ -87,7 +90,7 @@ class TestSSHClient:
             port=2222,
             username="admin",
             client_keys=[imported_key],
-            known_hosts=None,
+            known_hosts=trusted_hosts,
         )
         wait_for_mock.assert_awaited_once_with(connect_call, timeout=9)
 
