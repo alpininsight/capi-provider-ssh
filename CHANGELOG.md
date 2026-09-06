@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Inspect container metadata as root
 - **container:** Remove vulnerable pip tooling
 - Fence SSH lifecycle operations and validate provider HA
+- **ci:** Validate updated hooks and normalize generated changelog
 
 ### CI/CD
 
