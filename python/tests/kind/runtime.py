@@ -78,6 +78,14 @@ class Runtime:
 
     def prepare_target(self, role):
         container = f"{self.namespace}-{role}"
+        # Linux CI kernels can omit CONFIG_IKCONFIG_PROC and the configs module.
+        # Expose the real matching host config read-only; keep kubeadm validation enabled.
+        kernel_config = Path("/boot") / f"config-{os.uname().release}"
+        kernel_config_mount = (
+            ["--mount", f"type=bind,source={kernel_config},target={kernel_config},readonly"]
+            if os.uname().sysname == "Linux" and kernel_config.is_file()
+            else []
+        )
         run(
             "docker",
             "run",
@@ -100,6 +108,7 @@ class Runtime:
             "/var",
             "--volume",
             "/lib/modules:/lib/modules:ro",
+            *kernel_config_mount,
             os.environ.get("KIND_SSH_TARGET_IMAGE", "capi-ssh-kubeadm-target:p1"),
         )
         self.targets[role] = {"container": container}

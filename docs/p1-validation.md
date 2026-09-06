@@ -27,6 +27,12 @@ lifecycle lanes. Allow approximately 8 GB RAM and 30 minutes. A failed local run
 retains its explicit kubeconfig and cluster for diagnosis. No default kubeconfig,
 external SSH target or production namespace is used.
 
+On Linux, the test host receives `/boot/config-$(uname -r)` from the Docker host
+read-only when available. Azure CI kernels may expose neither `/proc/config.gz`
+nor the `configs` module; without the matching configuration, kubeadm's real
+SystemVerification fails. No kubeadm preflight check is disabled. Error-only,
+sanitized host artifacts preserve the diagnostic before normal CAPI teardown.
+
 The workflow `CI Python / CAPI lifecycle and provider failover` runs this path on
 every PR. Missing prerequisites fail the explicit lane. Unit-only success does
 not substitute for it. The optional external SSH lane separately requires
@@ -39,7 +45,8 @@ worker deletion/reuse and an abrupt provider crash. One remote bootstrap attempt
 completed and reconciliation recovered in 121.1 s (earlier independent trial:
 122.7 s). These observations are not a recovery-time SLO. Whole-cluster cleanup
 then completed through CAPI without removing finalizers manually. The k8s repository's
-full suite passed 344 suites, with seven explicitly skipped environment lanes.
+full suite passed 348 suites after rebasing the integration change, with seven
+explicitly skipped environment lanes.
 The final candidate's CI artifacts remain the authoritative commit-specific record.
 
 ## Lessons to carry into subsequent reviews
@@ -47,6 +54,7 @@ The final candidate's CI artifacts remain the authoritative commit-specific reco
 | Observed gap | Required improvement |
 |---|---|
 | Mocks accepted writes Kubernetes would prune or ignore | Include real structural CRDs, `/status` writes, defaults and stale resourceVersion conflicts in required CI |
+| A local kernel exposed configuration that the Linux CI container lacked | Mount the matching runner kernel config read-only; keep real preflight checks and collect error artifacts before cleanup |
 | Replica count suggested HA while standalone mode disabled coordination | Test runtime peering and deliberately kill the active reconciler during a host operation |
 | SSH connection loss killed or replayed remote bootstrap | Separate submission, durable remote execution and observation; assert exact attempt count after takeover |
 | Two replicas plus required anti-affinity blocked rolling upgrades | Exercise a rolling update with only two eligible nodes; keep maxSurge 0 / maxUnavailable 1 |
