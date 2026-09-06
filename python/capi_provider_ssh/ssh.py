@@ -4,9 +4,8 @@ Provides a reusable SSH client for executing commands on remote hosts
 via key-based authentication. Designed for CAPI provider operations
 (kubeadm init/join/reset).
 
-Host key verification is disabled (trusted mesh assumption via
-Tailscale/Headscale). A follow-up can add TOFU or known_hosts pinning
-without breaking the interface.
+Every connection verifies independently supplied OpenSSH known_hosts entries.
+Host certificates and @cert-authority entries use AsyncSSH's native validation.
 """
 
 from __future__ import annotations
@@ -82,7 +81,7 @@ class SSHConnection:
         result = await asyncio.wait_for(self._conn.run(command, check=False), timeout=timeout)
 
         ssh_result = SSHResult(
-            exit_code=result.exit_status or 0,
+            exit_code=result.exit_status if result.exit_status is not None else -1,
             stdout=result.stdout or "",
             stderr=result.stderr or "",
         )
@@ -108,7 +107,10 @@ class SSHConnection:
             path: Absolute path on the remote host.
         """
         logger.info("SSH upload to %s:%d path=%s (%d bytes)", self._address, self._port, path, len(content))
-        async with self._conn.start_sftp_client() as sftp, sftp.open(path, "w") as f:
+        async with (
+            self._conn.start_sftp_client() as sftp,
+            sftp.open(path, "w", attrs=asyncssh.SFTPAttrs(permissions=0o600)) as f,
+        ):
             await f.write(content)
 
     async def close(self) -> None:
@@ -134,6 +136,7 @@ class SSHClient:
         user: str = "root",
         key: str = "",
         timeout: int | None = None,
+        known_hosts: str | None = None,
     ) -> SSHConnection:
         """Open an SSH connection to a remote host.
 
@@ -143,6 +146,7 @@ class SSHClient:
             user: SSH username (default: root).
             key: PEM-encoded private key string.
             timeout: Connection timeout in seconds (default: SSH_CONNECT_TIMEOUT).
+            known_hosts: Verified OpenSSH known_hosts contents. Required; never learned from this connection.
 
         Returns:
             SSHConnection wrapper.
@@ -160,13 +164,17 @@ class SSHClient:
         except asyncssh.KeyImportError as e:
             raise ValueError(f"Failed to parse SSH private key: {e}") from e
 
+        if not known_hosts or not known_hosts.strip():
+            raise ValueError("Verified SSH known_hosts entries are required")
+        trusted_hosts = asyncssh.import_known_hosts(known_hosts)
+
         conn = await asyncio.wait_for(
             asyncssh.connect(
                 host=address,
                 port=port,
                 username=user,
                 client_keys=[client_key],
-                known_hosts=None,  # Trusted mesh -- no host key verification
+                known_hosts=trusted_hosts,
             ),
             timeout=timeout,
         )

@@ -7,12 +7,8 @@
 
 A minimal [Cluster API](https://cluster-api.sigs.k8s.io/) infrastructure provider for SSH-reachable hosts.
 
-Two implementations sharing the same CRDs and contract:
-
-| Implementation | Directory | Language | Framework |
-|---------------|-----------|----------|-----------|
-| Python | `python/` | Python 3.13+ | kopf + asyncssh |
-| Rust | `rust/` | Rust (stable) | kube-rs + russh |
+The implemented runtime is Python 3.13+ with Kopf and AsyncSSH.
+See the [support matrix](docs/support-matrix.md) for tested contracts, live state and planned capabilities.
 
 ## Purpose
 
@@ -40,6 +36,7 @@ Target Hosts (any SSH-reachable server)
 
 | Kind | Purpose |
 |------|---------|
+| `SSHHost` | UID-bound host inventory with health and cleanup state |
 | `SSHCluster` | Cluster-level infrastructure (control plane endpoint) |
 | `SSHClusterTemplate` | ClusterClass template for `SSHCluster` objects |
 | `SSHMachine` | Per-machine infrastructure (SSH address, credentials) |
@@ -96,12 +93,15 @@ spec:
 
 ## CAPI Contract
 
-Both implementations fulfill the same [CAPI provider contract](https://cluster-api.sigs.k8s.io/developer/providers/contracts/overview):
+The Python runtime implements the legacy v1beta1 [CAPI provider contract](https://cluster-api.sigs.k8s.io/developer/providers/contracts/overview):
 
-- `status.initialization.provisioned` signals readiness
+- `status.ready` signals CAPI v1beta1 infrastructure readiness; `initialization.provisioned` records provider completion
 - `spec.providerID` identifies the node
 - Finalizers handle cleanup (kubeadm reset)
-- Pause/unpause behavior supported
+- Standard CAPI pause/unpause is honored for bootstrap, reboot and cleanup
+- Two replicas coordinate through mandatory peering, renewed Leases and remote UID fencing
+
+See [lifecycle safety and HA](docs/operations.md).
 
 ## Bootstrap Configuration
 
@@ -173,17 +173,11 @@ validation:
 
 Use `ssh` unless you explicitly need to bypass host-side checks.
 
-## Flux Rollout
+## Rollout and validation
 
-If CAPI cluster reconciliation is suspended in Flux, use the explicit rollout
-procedure in [docs/flux-rollout.md](docs/flux-rollout.md) to:
-
-- reconcile provider manifests first
-- unsuspend `capi-clusters`
-- verify health and rollback quickly if needed
-
-For a full pre-release validation including per-phase teardown/remove steps,
-use [docs/live-rollout-validation.md](docs/live-rollout-validation.md).
+management-cloud uses ArgoCD. Follow [live rollout validation](docs/live-rollout-validation.md)
+for image/CRD ordering, the supported CAPI upgrade bridge and lifecycle evidence.
+The [operations runbook](docs/operations.md) covers pause, SSH trust, HA and recovery.
 
 ## DNS Cutover
 
@@ -202,9 +196,6 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup instructions.
 ```bash
 # Python
 cd python && uv sync && uv run pytest
-
-# Rust
-cd rust && cargo test
 
 # Apply CRDs
 kubectl apply -k shared/crds/

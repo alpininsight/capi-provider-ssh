@@ -8,7 +8,6 @@ This guide covers the tools and setup required for local development of capi-pro
 |------|---------|---------|
 | **uv** | Python package manager | 0.9+ |
 | **Python** | Runtime (managed by uv) | 3.13+ |
-| **Rust** | Rust toolchain (rustup) | stable |
 | **nerdctl** | Container builds (via Lima/containerd) | 2.0+ |
 | **kubectl** | Kubernetes CLI | 1.30+ |
 | **clusterctl** | Cluster API CLI | 1.9+ |
@@ -31,10 +30,6 @@ This guide covers the tools and setup required for local development of capi-pro
 # uv (Python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source ~/.bashrc  # or ~/.zshrc
-
-# Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
 
 # containerd + nerdctl
 # See: https://github.com/containerd/nerdctl
@@ -64,10 +59,6 @@ dotnet tool install --global GitVersion.Tool
 # uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
-
 # Lima (containerd + nerdctl included)
 brew install lima
 
@@ -84,11 +75,11 @@ brew install kind
 
 ## Shell Setup (zsh)
 
-If using zsh, ensure your PATH includes uv, cargo, and local binaries:
+If using zsh, ensure your PATH includes uv and local binaries:
 
 ```bash
 # Add to ~/.zshrc if not present
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 ## Verification
@@ -98,8 +89,6 @@ Run these commands to verify your setup:
 ```bash
 # Required tools
 uv --version          # Should show 0.9+
-rustc --version       # Should show stable
-cargo --version       # Should show matching version
 nerdctl --version     # Should show 2.0+ (via Lima)
 kubectl version --client  # Should show 1.30+
 clusterctl version    # Should show 1.9+
@@ -132,24 +121,6 @@ uv run ruff check .
 uv run ruff format .
 ```
 
-### Rust Provider
-
-```bash
-cd rust
-
-# Build
-cargo build
-
-# Run tests
-cargo test
-
-# Lint
-cargo clippy -- -D warnings
-
-# Format
-cargo fmt --check
-```
-
 ### CRDs
 
 Apply shared CRDs to a management cluster:
@@ -167,9 +138,6 @@ cd python && uv run pytest
 # Python with coverage
 cd python && uv run pytest --cov
 
-# Rust tests
-cd rust && cargo test
-
 # Pre-commit hooks (from repo root)
 uvx pre-commit run --all-files
 ```
@@ -182,8 +150,22 @@ cd python
 uv run ruff check .
 uv run ruff format .
 
-# Rust: lint + format
-cd rust
-cargo clippy -- -D warnings
-cargo fmt --check
 ```
+
+## Lifecycle regression lanes
+
+`uv run pytest -m "not integration and not e2e and not kind"` covers persisted API contracts,
+real loopback SSH trust, cleanup failures, dry-run, pause, reboot observation and
+cross-replica locking. Explicit integration/E2E lanes fail when prerequisites are
+missing; an unexecuted lane is not a passing lifecycle test.
+
+The disposable Kind lane uses an explicit loopback kubeconfig, two provider
+replicas, real CAPI/CABPK/KCP and Linux kubeadm targets. Its fixtures do not use
+the default management kubeconfig. Never point destructive lifecycle tests at a
+management-cloud context. Test Secrets remain available until cleanup succeeds;
+no test helper may strip finalizers to make a failed teardown pass.
+
+SSH-only E2E requires `E2E_SSH_HOST`, `E2E_SSH_KEY_PATH` and
+`E2E_SSH_KNOWN_HOSTS_PATH`. The nightly workflow reads independently verified
+host trust from `E2E_SSH_KNOWN_HOSTS`; missing trust fails the lane before SSH.
+See [the support matrix](docs/support-matrix.md) and [operations](docs/operations.md).

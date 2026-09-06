@@ -36,7 +36,9 @@ def strato_vm2():
     Returns dict with address, port, user. Skips if host is unreachable.
     Override with E2E_SSH_HOST, E2E_SSH_PORT, E2E_SSH_USER env vars.
     """
-    host = os.environ.get("E2E_SSH_HOST", "217.154.172.8")
+    host = os.environ.get("E2E_SSH_HOST")
+    if not host:
+        pytest.fail("Explicit E2E_SSH_HOST is required")
     port = int(os.environ.get("E2E_SSH_PORT", "22"))
     user = os.environ.get("E2E_SSH_USER", "root")
 
@@ -49,7 +51,7 @@ def strato_vm2():
             timeout=10,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-        pytest.skip(f"SSH target {host}:{port} is unreachable")
+        pytest.fail(f"SSH target {host}:{port} is unreachable")
 
     return {"address": host, "port": port, "user": user}
 
@@ -64,19 +66,32 @@ def ssh_private_key():
     raw_key_path = os.environ.get("E2E_SSH_KEY_PATH", "~/.ssh/id_ed25519")
     key_path = os.path.expanduser(os.path.expandvars(raw_key_path))
     if not os.path.exists(key_path):
-        pytest.skip(f"SSH private key not found: {key_path}")
+        pytest.fail(f"SSH private key not found: {key_path}")
     with open(key_path) as f:
         return f.read()
 
 
+@pytest.fixture(scope="session")
+def ssh_known_hosts():
+    path = os.environ.get("E2E_SSH_KNOWN_HOSTS_PATH")
+    if not path or not os.path.isfile(os.path.expanduser(path)):
+        pytest.fail("E2E_SSH_KNOWN_HOSTS_PATH must contain independently verified host keys")
+    with open(os.path.expanduser(path)) as stream:
+        content = stream.read()
+    if not content.strip():
+        pytest.fail("SSH trust file is empty")
+    return content
+
+
 @pytest.fixture
-async def ssh_connection(strato_vm2, ssh_private_key):
+async def ssh_connection(strato_vm2, ssh_private_key, ssh_known_hosts):
     """Open a real SSH connection to the target host. Closes on teardown."""
     conn = await SSHClient.connect(
         address=strato_vm2["address"],
         port=strato_vm2["port"],
         user=strato_vm2["user"],
         key=ssh_private_key,
+        known_hosts=ssh_known_hosts,
         timeout=15,
     )
     yield conn
@@ -84,7 +99,7 @@ async def ssh_connection(strato_vm2, ssh_private_key):
 
 
 @pytest.fixture(autouse=True)
-async def cleanup_marker_files(strato_vm2, ssh_private_key):
+async def cleanup_marker_files(strato_vm2, ssh_private_key, ssh_known_hosts):
     """Remove /tmp/capi-e2e-* marker files after each test."""
     yield
     try:
@@ -93,6 +108,7 @@ async def cleanup_marker_files(strato_vm2, ssh_private_key):
             port=strato_vm2["port"],
             user=strato_vm2["user"],
             key=ssh_private_key,
+            known_hosts=ssh_known_hosts,
             timeout=10,
         )
         async with conn:

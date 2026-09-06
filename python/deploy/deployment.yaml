@@ -8,7 +8,13 @@ metadata:
     app.kubernetes.io/component: controller
     cluster.x-k8s.io/provider: infrastructure-ssh
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  revisionHistoryLimit: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: capi-provider-ssh
@@ -23,20 +29,36 @@ spec:
       serviceAccountName: capi-provider-ssh-controller
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: capi-provider-ssh
+                  app.kubernetes.io/component: controller
       containers:
         - name: controller
           image: ghcr.io/alpininsight/capi-provider-ssh-python:develop
           env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
             - name: SSH_CONNECT_TIMEOUT
               value: "30"
             - name: SSH_COMMAND_TIMEOUT
               value: "300"
             - name: RECONCILE_INTERVAL
               value: "60"
-            - name: MAX_RETRIES
-              value: "3"
-            - name: RETRY_DELAY
-              value: "10"
           ports:
             - name: health
               containerPort: 8080

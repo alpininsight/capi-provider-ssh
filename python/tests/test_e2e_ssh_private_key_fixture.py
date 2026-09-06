@@ -19,13 +19,13 @@ def test_ssh_private_key_expands_tilde_env_path(monkeypatch, tmp_path):
     assert e2e_conftest.ssh_private_key.__wrapped__() == "fake-private-key"
 
 
-def test_ssh_private_key_skip_reports_expanded_path(monkeypatch, tmp_path):
+def test_ssh_private_key_missing_fails_explicit_lane(monkeypatch, tmp_path):
     home_dir = tmp_path / "home"
     home_dir.mkdir()
     monkeypatch.setenv("HOME", str(home_dir))
     monkeypatch.setenv("E2E_SSH_KEY_PATH", "~/.ssh/missing_key")
 
-    with pytest.raises(pytest.skip.Exception) as exc:
+    with pytest.raises(pytest.fail.Exception) as exc:
         e2e_conftest.ssh_private_key.__wrapped__()
 
     assert str(home_dir / ".ssh" / "missing_key") in str(exc.value)
