@@ -17,7 +17,7 @@ cleanup() {
   fi
   # Target containers are removed by pytest only after CAPI cleanup succeeds.
   # CI destroys its ephemeral VM even when remote cleanup failed.
-  kind delete cluster --name "$TEST_CLUSTER" || true
+  kind delete cluster --name "$TEST_CLUSTER" --kubeconfig "$KIND_TEST_KUBECONFIG" || true
   rm -rf "$TASK_DIR"
   exit "$result"
 }
