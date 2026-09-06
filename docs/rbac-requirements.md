@@ -1,57 +1,46 @@
-# RBAC Permission Requirements
+# RBAC permission reference
 
-The capi-provider-ssh controller requires a set of Kubernetes RBAC permissions
-to reconcile its custom resources, interact with CAPI owner objects, and manage
-operator state. This document describes the permission contract so that
-consumers know what to grant -- it is not intended as a copy-paste RBAC YAML.
+The authoritative manifests are [python/deploy/rbac.yaml](../python/deploy/rbac.yaml).
+The table describes the shipped controller role; it does not promise that an
+unreviewed reduced or expanded role will preserve the same behavior.
 
-The reference implementation is in
-[python/deploy/rbac.yaml](../python/deploy/rbac.yaml).
+| API group | Resources | Granted verbs | Purpose |
+|---|---|---|---|
+| `infrastructure.alpininsight.ai` | sshclusters, sshclustertemplates, sshhosts, sshmachines, sshmachinetemplates | get, list, watch, create, update, patch, delete | Provider resource reconciliation |
+| `infrastructure.alpininsight.ai` | sshclusters/status, sshhosts/status, sshmachines/status | get, update, patch | Status subresource writes |
+| `infrastructure.alpininsight.ai` | sshclusters/finalizers, sshmachines/finalizers | update | Owned lifecycle finalizers |
+| `cluster.x-k8s.io` | clusters, machines | get, list, watch | CAPI ownership, pause and bootstrap references |
+| `apiextensions.k8s.io` | customresourcedefinitions | get, list, watch | Kopf discovery |
+| `kopf.dev` | clusterkopfpeerings | get, list, watch, patch | Active/standby peering |
+| `coordination.k8s.io` | leases | get, create, update | Provider host-operation Leases |
+| Core | secrets | get, list, watch | Client keys, host trust, bootstrap and etcd material |
+| Core | events | create, patch | Reconciliation events |
 
-## Permission Table
+The role grants no ConfigMap permissions. Host Leases are provider-specific
+operation locks, not Kopf's leader-election implementation. The role is read-only
+for CAPI Clusters/Machines and Secrets. Separate aggregate roles extend upstream
+CAPI/KCP managers with access to this provider's resources and status APIs.
 
-### Provider CRDs
+## Management trust boundary
 
-| API Group | Resources | Verbs | Purpose |
-|-----------|-----------|-------|---------|
-| `infrastructure.alpininsight.ai` | sshclusters, sshclustertemplates, sshhosts, sshmachines, sshmachinetemplates | get, list, watch, create, update, patch, delete | Reconcile owned resources |
-| `infrastructure.alpininsight.ai` | sshclusters/status, sshhosts/status, sshmachines/status | get, update, patch | Update status subresources |
-| `infrastructure.alpininsight.ai` | sshclusters/finalizers, sshmachines/finalizers | update | Manage cleanup finalizers |
+The controller role is cluster-wide, including Secret reads. Restrict writes to
+provider resources, bootstrap data and credential Secrets to trusted operators.
+Namespaced references do not make this deployment a boundary for hostile tenants.
+Any future namespace-scoped operating mode requires separate implementation and
+tests; do not imply isolation by editing a table alone.
 
-### CAPI Owner Resources
+## Auditor and registry identities
 
-| API Group | Resources | Verbs | Purpose |
-|-----------|-----------|-------|---------|
-| `cluster.x-k8s.io` | clusters, machines | get, list, watch | Read ownerRef chain and bootstrap data references |
+The optional consumer namespace-audit CronJob is delivered by the GitOps repo,
+not this base deployment. Its own account reads namespaces and must not patch
+namespace finalizers. Keep its test operation distinct from the controller's
+SSHCluster API read. Registry/mirror admission is another policy layer and is
+not granted by these Kubernetes RBAC rules.
 
-### CRD Discovery
+## Diagnosing a denial
 
-| API Group | Resources | Verbs | Purpose |
-|-----------|-----------|-------|---------|
-| `apiextensions.k8s.io` | customresourcedefinitions | get, list, watch | Kopf dynamic watch setup (see [FAQ](faq.md#rbac-does-the-example-rbac-include-crd-permissions-for-kopf)) |
-
-Without these permissions Kopf logs `403 Forbidden` errors during CRD
-discovery and may fail to reconcile resources.
-
-### Core Resources
-
-| API Group | Resources | Verbs | Purpose |
-|-----------|-----------|-------|---------|
-| `""` (core) | secrets | get, list, watch | Read SSH private keys, bootstrap data, and etcd certificate Secrets |
-| `""` (core) | events | create, patch | Emit Kubernetes events on reconcile actions |
-| `""` (core) | configmaps | get, list, watch, create, update, patch | Kopf internal state storage |
-
-### Leader Election
-
-| API Group | Resources | Verbs | Purpose |
-|-----------|-----------|-------|---------|
-| `coordination.k8s.io` | leases | get, list, watch, create, update, patch, delete | Kopf leader election for HA deployments |
-
-## Notes
-
-- The controller is **read-only** for CAPI resources (`cluster.x-k8s.io`) and
-  Secrets. It never creates or modifies Secrets, Clusters, or Machines.
-- ConfigMap and Lease permissions are required by Kopf's internal machinery,
-  not by provider-specific logic.
-- If you customize the RBAC, keep the `apiextensions.k8s.io` rule -- dropping
-  it causes silent failures during startup.
+Record the denied API group/resource/verb and the intended identity without
+dumping bearer tokens or Secrets. Compare actual RBAC with the source role, then
+use a reviewed overlay change if a required contract is missing. Do not grant
+wildcards or namespace mutation to make an unrelated canary pass. Verify both
+positive and forbidden operations after a permission change.

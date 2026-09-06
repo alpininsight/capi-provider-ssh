@@ -2,7 +2,7 @@
 
 import asyncio
 import datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import kopf
 import kubernetes
@@ -414,9 +414,203 @@ def test_external_etcd_control_plane_join_uses_existing_cluster_config(version):
     assert recognized and not changed and yaml.safe_load(result) == config
 
 
-async def test_lease_loss_interrupts_local_work_without_releasing_a_new_owner(api, monkeypatch):
+@pytest.mark.parametrize("failure", ["changed-holder", "api-unavailable"])
+@pytest.mark.timeout(3)
+async def test_lease_loss_interrupts_local_work_without_releasing_a_new_owner(api, monkeypatch, failure):
     monkeypatch.setattr("capi_provider_ssh.operations.LEASE_SECONDS", 0.04)
-    monkeypatch.setattr(HostLease, "renew", lambda self: False)
+
+    def lose_lease(self):
+        current = next(iter(api.leases.values()))
+        current.spec.holder_identity = "replacement-holder"
+        if failure == "api-unavailable":
+            raise kubernetes.client.ApiException(status=503)
+        return False
+
+    monkeypatch.setattr(HostLease, "renew", lose_lease)
     with pytest.raises(kopf.TemporaryError, match="Lost host Lease"):
         async with host_operation({"address": "host", "port": 22}, "uid"):
             await asyncio.sleep(1)
+            pytest.fail("local work continued after losing its Lease")
+    assert next(iter(api.leases.values())).spec.holder_identity == "replacement-holder"
+
+
+@pytest.mark.parametrize("stage", ["read", "create", "replace"])
+async def test_lease_api_failure_never_starts_a_remote_operation(api, ssh, monkeypatch, stage):
+    if stage == "replace":
+        old = HostLease("host", 22, "old")
+        assert old.acquire()
+        next(iter(api.leases.values())).spec.renew_time -= datetime.timedelta(seconds=120)
+    method = f"{stage}_namespaced_lease"
+    failure = Mock(side_effect=kubernetes.client.ApiException(status=503))
+    monkeypatch.setattr(api, method, failure)
+    with pytest.raises(kopf.TemporaryError, match="Cannot acquire"):
+        async with host_operation({"address": "host", "port": 22}, "uid"):
+            await ssh.execute("must not run")
+    failure.assert_called_once()
+    ssh.execute.assert_not_awaited()
+
+
+@pytest.mark.parametrize("stage", ["create", "replace"])
+async def test_lease_cas_conflict_does_not_enter_the_operation(api, monkeypatch, stage):
+    if stage == "replace":
+        old = HostLease("host", 22, "old")
+        assert old.acquire()
+        next(iter(api.leases.values())).spec.renew_time -= datetime.timedelta(seconds=120)
+    failure = Mock(side_effect=kubernetes.client.ApiException(status=409))
+    monkeypatch.setattr(api, f"{stage}_namespaced_lease", failure)
+    with pytest.raises(kopf.TemporaryError, match="Another operation"):
+        async with host_operation({"address": "host", "port": 22}, "uid"):
+            pytest.fail("conflicting claim entered the operation")
+    failure.assert_called_once()
+    if stage == "replace":
+        assert next(iter(api.leases.values())).spec.holder_identity == old.holder
+
+
+@pytest.mark.timeout(3)
+async def test_external_cancellation_propagates_and_releases_own_lease(api):
+    entered = asyncio.Event()
+
+    async def work():
+        async with host_operation({"address": "host", "port": 22}, "uid"):
+            entered.set()
+            await asyncio.Event().wait()
+
+    task = asyncio.create_task(work())
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert next(iter(api.leases.values())).spec.holder_identity is None
+
+
+async def test_release_failure_keeps_expiring_claim_without_masking_operation_error(api, monkeypatch):
+    release = Mock(side_effect=kubernetes.client.ApiException(status=503))
+    monkeypatch.setattr(HostLease, "release", release)
+    with pytest.raises(ValueError, match="operation failed"):
+        async with host_operation({"address": "host", "port": 22}, "uid") as lease:
+            raise ValueError("operation failed")
+    release.assert_called_once()
+    assert next(iter(api.leases.values())).spec.holder_identity == lease.holder
+
+
+@pytest.mark.parametrize("plural", ["machines", "clusters"])
+@pytest.mark.parametrize("status_code", [404, 403, 503])
+async def test_unreadable_capi_owner_chain_blocks_bootstrap(api, ssh, monkeypatch, plural, status_code):
+    machine = api.machine()
+    original = api.get_namespaced_custom_object
+
+    def unavailable(*args, **kwargs):
+        if kwargs.get("plural") == plural:
+            raise kubernetes.client.ApiException(status=status_code)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(api, "get_namespaced_custom_object", unavailable)
+    if status_code == 404:
+        await reconcile(api, machine)
+    else:
+        with pytest.raises(kopf.TemporaryError, match="pause state"):
+            await reconcile(api, machine)
+    SSHClient.connect.assert_not_awaited()
+    assert not api.current(machine)["status"].get("bootstrapOwnership")
+
+
+async def test_recreated_capi_owner_blocks_bootstrap(api, ssh):
+    machine = api.machine()
+    api.objects["cluster.x-k8s.io", "machines", "test", "machine-a"]["metadata"]["uid"] = "new-owner"
+    with pytest.raises(kopf.TemporaryError, match="owner UID changed"):
+        await reconcile(api, machine)
+    SSHClient.connect.assert_not_awaited()
+
+
+@pytest.mark.parametrize("field", ["machineUID", "address", "port", "hostUID"])
+async def test_cleanup_refuses_unverified_bootstrap_ownership_and_keeps_claim(api, ssh, field):
+    machine = pool_machine(api)
+    allocated = host(api)
+    machine = await reconcile(api, machine)
+    raw(api, machine)["status"]["bootstrapOwnership"][field] = 9999 if field == "port" else "different"
+    ssh.events.clear()
+    SSHClient.connect.reset_mock()
+    with pytest.raises(kopf.TemporaryError, match="ownership"):
+        await reconcile(api, machine, delete=True)
+    SSHClient.connect.assert_not_awaited()
+    assert api.current(allocated, "sshhosts")["spec"]["consumerRef"]["uid"] == machine["metadata"]["uid"]
+    assert not ssh.events
+
+
+async def test_delete_with_ambiguous_unstarted_claims_retains_both_for_recovery(api, ssh):
+    machine = pool_machine(api)
+    ref = consumer_ref("machine-a", "test", machine["metadata"]["uid"])
+    allocated = [host(api, name, ref=ref) for name in ("first", "second")]
+    with pytest.raises(kopf.TemporaryError, match="Multiple UID claims"):
+        await reconcile(api, machine, delete=True)
+    SSHClient.connect.assert_not_awaited()
+    assert all(api.current(item, "sshhosts")["spec"]["consumerRef"] == ref for item in allocated)
+
+
+async def test_completed_cleanup_retry_only_releases_claim_without_repeating_reset(api, ssh, monkeypatch):
+    machine = pool_machine(api)
+    allocated = host(api)
+    machine = await reconcile(api, machine)
+    from capi_provider_ssh import lifecycle
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(lifecycle, "release_host", Mock())
+        await reconcile(api, machine, delete=True)
+    assert api.current(machine)["status"]["cleanup"]["phase"] == "Succeeded"
+    assert api.current(allocated, "sshhosts")["spec"]["consumerRef"]
+    SSHClient.connect.reset_mock()
+    await reconcile(api, machine, delete=True)
+    SSHClient.connect.assert_not_awaited()
+    assert ssh.events.count("reset") == 1
+    assert not api.current(allocated, "sshhosts")["spec"].get("consumerRef")
+
+
+async def test_unobserved_reboot_deadline_never_replays_same_request(api, ssh):
+    machine = await reconcile(api, api.machine())
+    raw(api, machine)["spec"]["remediation"] = {"reboot": {"requestedAt": "2026-09-07T00:00:00Z"}}
+    await reconcile(api, machine)
+    state = raw(api, machine)["status"]["remediation"]["reboot"]
+    state["startedAt"] = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=6)).isoformat()
+    for _ in range(2):
+        result = await reconcile(api, machine)
+        assert result["status"]["remediation"]["reboot"]["phase"] == "Unknown"
+        assert result["status"]["remediation"]["reboot"]["success"] is False
+    assert ssh.events.count("reboot") == 1
+
+
+async def test_new_reboot_request_cannot_overlap_a_submitted_request(api, ssh):
+    machine = await reconcile(api, api.machine())
+    raw(api, machine)["spec"]["remediation"] = {"reboot": {"requestedAt": "2026-09-07T00:00:00Z"}}
+    await reconcile(api, machine)
+    raw(api, machine)["spec"]["remediation"]["reboot"]["requestedAt"] = "2026-09-07T00:01:00Z"
+    with pytest.raises(kopf.TemporaryError, match="previous reboot is still in progress"):
+        await reconcile(api, machine)
+    assert api.current(machine)["status"]["remediation"]["reboot"]["lastRequestedAt"] == "2026-09-07T00:00:00Z"
+    assert ssh.events.count("reboot") == 1
+
+
+async def test_cleanup_waits_for_pending_reboot_without_submitting_another(api, ssh):
+    machine = pool_machine(api)
+    allocated = host(api)
+    machine = await reconcile(api, machine)
+    raw(api, machine)["spec"]["remediation"] = {"reboot": {"requestedAt": "2026-09-07T00:00:00Z"}}
+    await reconcile(api, machine)
+    with pytest.raises(kopf.TemporaryError, match="Waiting to observe"):
+        await reconcile(api, machine, delete=True)
+    assert "reset" not in ssh.events
+    assert api.current(allocated, "sshhosts")["spec"]["consumerRef"]
+    ssh.boot_id = BOOT_B
+    with pytest.raises(kopf.TemporaryError, match="Cleanup waits"):
+        await reconcile(api, machine, delete=True)
+    await reconcile(api, machine, delete=True)
+    assert ssh.events.count("reboot") == 1 and ssh.events.count("reset") == 1
+    assert not api.current(allocated, "sshhosts")["spec"].get("consumerRef")
+
+
+async def test_invalid_boot_identity_prevents_reboot_submission(api, ssh):
+    machine = await reconcile(api, api.machine())
+    raw(api, machine)["spec"]["remediation"] = {"reboot": {"requestedAt": "2026-09-07T00:00:00Z"}}
+    ssh.boot_id = "unverifiable"
+    with pytest.raises(kopf.TemporaryError, match="host boot identity"):
+        await reconcile(api, machine)
+    assert "reboot" not in ssh.events

@@ -43,14 +43,20 @@ def api_server(tmp_path, monkeypatch):
         key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
     )
     (tmp_path / "token").write_text("fixture-token-one")
-    state = {"status": 200, "body": b'{"items": []}', "requests": []}
+    state = {"status": 200, "body": b'{"items": []}', "requests": [], "unblock": threading.Event()}
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             state["requests"].append((self.command, self.path, self.headers.get("Authorization")))
+            if state.get("stall") == "headers":
+                state["unblock"].wait(timeout=2)
+                return
             self.send_response(state["status"])
             self.send_header("Content-Length", str(len(state["body"])))
             self.end_headers()
+            if state.get("stall") == "body":
+                state["unblock"].wait(timeout=2)
+                return
             with suppress(BrokenPipeError, ConnectionResetError):
                 self.wfile.write(state["body"])
 
@@ -69,6 +75,7 @@ def api_server(tmp_path, monkeypatch):
     try:
         yield state, tmp_path
     finally:
+        state["unblock"].set()
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
@@ -100,7 +107,9 @@ def test_api_denial_and_redirects_fail_without_retry_or_body_disclosure(api_serv
     assert len(state["requests"]) == 1
 
 
-@pytest.mark.parametrize("body", [b"[]", b"null", b"x" * (readiness.MAX_API_RESPONSE + 1)])
+@pytest.mark.parametrize(
+    "body", [b"[]", b"null", b"x" * (readiness.MAX_API_RESPONSE + 1)], ids=["array", "null", "oversized"]
+)
 def test_invalid_or_oversized_api_response_is_not_readiness(api_server, body):
     state, _ = api_server
     state["body"] = body
@@ -155,3 +164,17 @@ def test_in_cluster_probe_imports_no_generated_sdk():
         timeout=10,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("stage", ["headers", "body"])
+@pytest.mark.timeout(5)
+def test_stalled_api_response_fails_readiness_without_retry_or_credential_disclosure(
+    api_server, monkeypatch, capsys, stage
+):
+    state, _ = api_server
+    state.update(stall=stage, body=b"sensitive upstream diagnostic")
+    monkeypatch.setattr(readiness, "REQUEST_TIMEOUT", (1, 0.05))
+    monkeypatch.setattr(readiness, "local_runtime", lambda: {"configured": True, "ha": False})
+    assert readiness.main() == 1
+    assert capsys.readouterr().out == "not ready: TimeoutError\n"
+    assert len(state["requests"]) == 1

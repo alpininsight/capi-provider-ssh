@@ -1,5 +1,10 @@
 # Protocol-Based Hardware Plugin Taxonomy
 
+> Historical design/research record. Examples are not deployable configuration;
+> hardware/version claims must be revalidated before use. Current implementation
+> and extension requirements are in the [support matrix](../support-matrix.md)
+> and [plugin design boundary](../plugin-contract.md).
+
 Status: **design proposal, no runtime plugin API**. Protocol identifiers and
 capabilities in this document are not implemented drivers. Every future driver
 must integrate the ownership, fencing and outcome-observation contracts in

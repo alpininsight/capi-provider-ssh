@@ -1,5 +1,10 @@
 # Issue #119 Design Plan: Cloud-Init Bootstrap Compatibility + Reconcile Reliability
 
+> Historical design/research record. Examples are not deployable configuration;
+> hardware/version claims must be revalidated before use. Current implementation
+> and extension requirements are in the [support matrix](../support-matrix.md)
+> and [plugin design boundary](../plugin-contract.md).
+
 Issue: [#119](https://github.com/alpininsight/capi-provider-ssh/issues/119)
 
 ## Problem Summary

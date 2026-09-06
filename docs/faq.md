@@ -1,221 +1,102 @@
-# Frequently Asked Questions
+# Troubleshooting and FAQ
+
+Start with an explicit management kubeconfig, the selected namespace/resource
+and the actual deployed image digest. Preserve ownership and Secrets while
+diagnosing. Detailed host/account evidence belongs in the private operational
+record; redact bootstrap output and upstream errors before sharing.
+
+## A controller is Running but lifecycle work does not progress
+
+Running is a process state. Check Ready/Available replicas, the image/probe
+configuration, authenticated API access and each replica's current peering
+heartbeat. One healthy standby is expected. A stale peer or API denial requires
+diagnosis even when `/healthz` responds. See the [HA gate](operations.md#liveness-readiness-and-the-live-ha-gate).
+
+Readiness proves API/coordination access, not every watch or resource handler.
+Then inspect the affected Machine's owner chain, pause state, allocation,
+bootstrap receipt and conditions. Do not restart repeatedly without identifying
+the failed layer.
+
+## Does deletion release a host even when cleanup fails?
+
+**No.** The order is owned cleanup, persisted success, claim release and finalizer
+completion. An unreachable host, failed reset or unverified ownership retains
+the claim and finalizer; failed cleanup quarantines the host. Restore verified
+access and retry normal deletion. Never remove finalizers or clear consumerRef
+to manufacture success. A completed dry-run with no bootstrap ownership performs
+no remote reset. See [allocation and cleanup](operations.md#allocation-and-cleanup).
+
+## Can cleanup hooks or firewall flushes make a host reusable?
+
+There is no supported generic cleanup-hook API. The implemented reset does not
+promise to erase CNI state, application data, firewall rules or storage volumes.
+Do not insert unconditional reset/iptables-flush commands as a shortcut around
+UID ownership and cleanup. Use a separately reviewed host sanitization procedure
+when changing a host's trust domain. Reprovision through the owning CAPI Machine,
+not by deleting the infrastructure object first.
+
+## Why is an SSHHost reachable but unavailable for allocation?
+
+`status.ready` describes SSH reachability. A claimed, deleting, Cleaning or
+Quarantined host is not a free allocation. Health or label changes do not move an
+existing Machine to a spare host. Inspect consumer UID, host UID, phase and
+cleanup state together; orphaned or ambiguous claims require explicit recovery.
 
 ## RBAC: Does the example RBAC include CRD permissions for Kopf?
 
-**Yes.** The shipped `python/deploy/rbac.yaml` includes:
+Yes: CRD get/list/watch is included for discovery. Check the exact shipped
+[RBAC table](rbac-requirements.md) before adjusting an overlay. The controller
+also needs peering access and provider-owned host Leases. It does not require
+namespace patch/finalizer privileges to make the read-only audit succeed.
+Use the intended ServiceAccount's operation when designing a canary; an auditor
+operation under the controller identity can correctly fail with 403.
 
-```yaml
-# CRD discovery for dynamic watch setup and contract checks
-- apiGroups: ["apiextensions.k8s.io"]
-  resources: ["customresourcedefinitions"]
-  verbs: ["get", "list", "watch"]
-```
+## How is duplicate bootstrap prevented?
 
-Kopf needs `apiextensions.k8s.io` get/list/watch to discover CRDs and set up
-watches. If your ServiceAccount is missing these permissions, verify you are
-using the reference RBAC from `python/deploy/rbac.yaml` and not a customized
-version that dropped this rule. See
-[docs/rbac-requirements.md](rbac-requirements.md) for the full permission
-table.
+Machine locks, mandatory peering, renewed host Leases, remote flock and a
+Machine-UID owner record work together. A detached bootstrap records a durable
+result. Takeover observes that receipt instead of assuming a lost SSH response
+means the command never ran. The additional Machine lock defaults to 120 seconds;
+host Leases use 60 seconds. See [architecture](architecture.md#coordination-layers)
+for each layer's limit.
 
-**Symptoms when missing:** Kopf logs 403 Forbidden errors during CRD discovery
-and may fail to reconcile resources. The controller does not add custom logging
-for this — Kopf emits the warnings internally.
+## Why does a reboot remain Submitted or Unknown?
 
-## Does the controller run kubeadm reset on Machine deletion?
+Submission is not completion. The provider requires a changed Linux boot ID.
+An unobserved request is not automatically replayed, and cleanup waits while its
+outcome is unresolved. Verify through an independent trusted console before
+issuing a deliberate new request. See [reboot semantics](operations.md#reboot-semantics).
 
-**Yes.** The SSHMachine delete handler
-(`python/capi_provider_ssh/controllers/sshmachine.py`) performs two actions:
+## Why did the probe print ready but the container restart?
 
-1. Releases the claimed SSHHost back to the pool (clears `consumerRef`)
-2. SSHes into the host and runs:
-   ```bash
-   kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet
-   ```
+Inspect the probe exit code, container termination reason, cgroup OOM counters,
+memory use and concurrent diagnostic processes. The lightweight in-cluster probe
+avoids loading the generated Kubernetes SDK. A 128/512 MiB request/limit provides
+Burstable headroom, not a guarantee against node pressure or a memory leak.
+Do not import the full SDK into each exec probe or treat stdout as the only result.
 
-Cleanup failures (SSH unreachable, command fails, missing SSH key) are logged
-as warnings but **never block finalizer removal** — the Machine resource is
-always deletable.
+## GitOps is Synced but the Application is Degraded
 
-If you are not seeing cleanup happen, check which image tag you are running.
-The cleanup logic landed in develop after v0.1.0. Pin to the latest release
-tag rather than the floating `develop` tag.
+Inspect the individual resource health and latest operation. A failed scheduled
+audit can keep the Application degraded while controllers are healthy. A manually
+created independent Job does not necessarily advance the CronJob's successful
+schedule state. Preserve failed-job evidence and verify the next owned scheduled
+run; do not patch status or delete evidence solely to turn the dashboard green.
 
-## Is there a configurable cleanup hook (postDeleteCommands)?
+For ImagePullBackOff, inspect registry admission, the actual container-runtime
+mirror path and scheduling eligibility. A cached image or a healthy registry Pod
+does not prove that the controller/auditor identity can fetch the selected digest.
 
-**Not yet.** The cleanup command is currently hardcoded. A configurable
-`spec.cleanupCommands` field is a good enhancement for cases where additional
-post-deletion cleanup is needed (CNI-specific teardown, custom iptables flush,
-application state removal). This is tracked as a wishlist item.
+## What if kubectl logs or exec fails?
 
-As a workaround, you can add cleanup steps to `preKubeadmCommands` so that
-stale state is cleared before re-provisioning:
+Confirm the Pod still exists, then inspect API-to-kubelet routing, authorization
+and network conditions. These subresources need more than a reachable API root.
+Use the management platform's approved HA endpoint and operational access path;
+do not bypass it with an arbitrary control-plane backend or changed SSH host key.
 
-```yaml
-preKubeadmCommands:
-  - kubeadm reset -f || true
-  - rm -rf /etc/cni/net.d /var/lib/cni
-  - iptables -F && iptables -t nat -F && iptables -t mangle -F
-```
+## Can this repository's release or roadmap be treated as production certification?
 
-## How should I re-provision Lima-backed nodes?
-
-Always drive lifecycle from CAPI core objects:
-
-```bash
-kubectl -n <namespace> delete machine <machine-name>
-```
-
-Do **not** delete `SSHMachine` directly for reprovision. Deleting the `Machine`
-lets CAPI orchestrate infrastructure deletion, and the provider can release
-`SSHHost` claims and run node cleanup (`kubeadm reset`).
-
-If you use Lima-hosted VMs, choose one of these host-side reset paths before
-re-bootstrap:
-
-1. Reset Kubernetes state in-place (keep VMs):
-   ```bash
-   limactl shell <vm-name> -- sudo kubeadm reset -f
-   limactl shell <vm-name> -- sudo rm -rf /etc/kubernetes /var/lib/kubelet
-   ```
-2. Recreate VMs for a full clean slate:
-   ```bash
-   limactl delete <vm-name>
-   limactl start <vm-config-or-instance>
-   ```
-
-`limactl` usage and VM names are user/environment-specific and are outside the
-provider API contract.
-
-## Is SSHHost health probing functional?
-
-**Yes.** The SSHHost controller runs a timer-based probe on each SSHHost:
-
-- **Interval:** 300 seconds (configurable via `SSHHOST_PROBE_INTERVAL` env var)
-- **Timeout:** 10 seconds per probe (configurable via `SSHHOST_PROBE_TIMEOUT`)
-- **Initial delay:** 10 seconds after controller startup
-
-Each probe tests SSH connectivity (connect and disconnect) and updates:
-
-| Status field | Description |
-|-------------|-------------|
-| `status.ready` | `true` if last probe succeeded |
-| `status.lastProbeTime` | ISO 8601 timestamp of last probe |
-| `status.lastProbeSuccess` | `true`/`false` result of last probe |
-| `status.conditions[SSHReachable]` | Condition with reason `ProbeSucceeded` or `ProbeFailed` |
-
-The SSHMachine controller's `_choose_host()` logic uses probe results to
-prefer healthy hosts when claiming from the pool.
-
-**To verify probing is working:**
-
-```bash
-kubectl get sshhosts -o custom-columns=\
-NAME:.metadata.name,\
-READY:.status.ready,\
-LAST_PROBE:.status.lastProbeTime,\
-IN_USE:.status.inUse
-```
-
-## Should I use the floating develop tag in staging?
-
-**No.** Pin to a release tag (e.g., `v0.2.0`) for staging and production. The
-`develop` tag is a floating tag that points to the latest commit on the develop
-branch — it may include incomplete features or breaking changes.
-
-New releases are cut automatically when `develop` is merged into `main`. Check
-the [Releases page](https://github.com/alpininsight/capi-provider-ssh/releases)
-for the latest stable tag.
-
-## How does the provider prevent concurrent bootstrap across multiple controller pods?
-
-The SSHMachine controller now applies a **cross-process distributed lock** on
-each `SSHMachine` by writing a lock annotation with optimistic concurrency
-(`metadata.resourceVersion` compare-and-swap). This sits on top of the existing
-in-process `asyncio.Lock`.
-
-Behavior:
-
-1. Reconcile/delete handlers first acquire the in-process per-machine lock.
-2. Then they acquire the distributed lock annotation.
-3. Under lock, reconcile re-reads the live `SSHMachine` from the API server
-   when the event contains `metadata.uid`, and skips bootstrap when
-   `status.initialization.provisioned=true`.
-4. If another pod already holds the lock, the handler requeues with
-   `kopf.TemporaryError` and does not execute bootstrap/cleanup.
-
-Bootstrap execution also has a host-side sentinel guard:
-- On entry: if `/run/cluster-api/bootstrap-success.complete` exists, bootstrap
-  short-circuits to success without rerunning script steps.
-- On success: provider creates that sentinel file.
-
-Reconcile also validates object identity under lock: if the live object is gone
-or the live `metadata.uid` differs from the event UID, the handler exits
-without bootstrap. This prevents stale timer/update callbacks from acting on a
-deleted/recreated `SSHMachine` with the same name.
-
-Environment controls:
-
-- `SSHMACHINE_DISTRIBUTED_LOCK_ENABLED` (default: `true`)
-- `SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS` (default: `7200`)
-- `SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS` (default: `5`)
-
-Lock holder identity is stable across process restarts (`POD_NAME`/`HOSTNAME`
-based, no random suffix), so a controller restart can reclaim its own
-non-expired lock instead of waiting for TTL expiry.
-
-This protects rolling-update overlap windows where two operator instances may
-be active briefly.
-
-## How does integration test teardown avoid leaked test namespaces?
-
-Integration tests now use a deterministic teardown contract in
-`python/tests/integration/cleanup.py`:
-
-1. Teardown is allowed only for namespaces with prefix `test-capi-ssh-` and
-   label `capi-provider-ssh-test=true`.
-2. Resources are deleted in explicit order (CAPI `Machine` first so CAPI can
-   drive infrastructure cleanup, then `SSHMachine`/`SSHCluster`, then bootstrap
-   test objects, then namespace).
-3. Teardown asserts there is no residue (`Machine`, `SSHMachine`,
-   `KubeadmConfig`, test Secrets, test namespaces).
-4. On teardown failure, a debug bundle is written (when
-   `TEARDOWN_ARTIFACT_DIR` is set) and uploaded by CI.
-
-This is designed to prevent recurring `test-cluster not found` noise from
-orphaned test resources.
-
-## Can I swap DNS so staging becomes production and keep old production as backup?
-
-**Yes.** This is a valid blue/green-style cutover pattern:
-
-1. Promote staging to production traffic via DNS.
-2. Keep old production online as rollback target.
-3. Tear down old production only after review acceptance and rollback-window
-   expiry.
-
-Recommended controls:
-- Lower DNS TTL before cutover (for example 60s).
-- Keep old production read-only during rollback window.
-- Validate health/smoke checks immediately after DNS switch.
-- If issues appear, switch DNS back to old production first, then debug.
-
-Use `docs/dns-cutover.md` for the full cutover and teardown gate runbook.
-
-## Pod logs unreachable via tunnel (kubectl logs returns NotFound)
-
-This is typically a tunnel or API server subresource routing issue, not a
-provider problem. `kubectl logs` requires the API server to proxy a
-subresource request to the kubelet on the target node.
-
-**Troubleshooting steps:**
-
-1. Verify the pod exists: `kubectl get pod <name> -n <namespace>`
-2. Try `kubectl describe pod` (uses the API server directly, no subresource)
-3. Check if `kubectl exec` also fails (same subresource mechanism)
-4. If both fail, the tunnel likely does not support subresource proxying —
-   access the node directly or check your tunnel configuration
-
-The controller itself logs to stdout. If `kubectl logs` is broken through
-your tunnel, access the controller pod's logs via the node directly or
-through your cluster's log aggregation.
+No. Use immutable image/source evidence and the [support matrix](support-matrix.md).
+The current plugin proposals are not implementations. Workload HA, external etcd,
+hardware/distribution validation and the consumer rollout require their own proof.
+See [release and delivery](release-process.md).

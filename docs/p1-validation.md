@@ -1,8 +1,9 @@
 # P1 validation and review record
 
-Baseline: 2026-09-06. This records candidate implementation evidence; it does not
-assert that management-cloud has received the candidate image or CAPI upgrade.
-The [support matrix](support-matrix.md) separates those states.
+Baseline: 2026-09-06. This is historical implementation evidence; counts and
+observed timings below belong to those runs. Use the [test portfolio](testing.md)
+for current lanes and the [support matrix](support-matrix.md) for support limits.
+The record does not establish a current management-cloud image or CAPI upgrade.
 
 | Finding | Change | Regression evidence |
 |---|---|---|
