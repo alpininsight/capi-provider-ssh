@@ -155,6 +155,7 @@ def owned_command(
     elif cleaned_retry:
         absent = (
             "if ! test -e /etc/kubernetes/kubelet.conf && ! test -e /var/lib/kubelet/config.yaml "
+            "&& ! test -e /etc/kubernetes/manifests/kube-apiserver.yaml && ! test -d /var/lib/etcd/member "
             "&& ! test -e /run/cluster-api/bootstrap-success.complete; then exit 0; fi; " + absent
         )
     script = (

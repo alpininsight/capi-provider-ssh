@@ -43,6 +43,23 @@ def test_capi_lifecycle_and_inflight_provider_failover():
             "-ceu",
             "test ! -e /etc/kubernetes/kubelet.conf; test ! -e /var/lib/capi-provider-ssh/owner",
         )
+        # A lost owner marker with residual control-plane data is not proof of cleanup.
+        for residual in ("/var/lib/etcd/member", "/etc/kubernetes/manifests/kube-apiserver.yaml"):
+            run("docker", "exec", rt.container("worker-0"), "mkdir", "-p", residual)
+            rejected = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    rt.container("worker-0"),
+                    "sh",
+                    "-c",
+                    owned_command(before, "touch /tmp/capi-forbidden", cleaned_retry=True),
+                ],
+                capture_output=True,
+            )
+            assert rejected.returncode == 78
+            run("docker", "exec", rt.container("worker-0"), "test", "!", "-e", "/tmp/capi-forbidden")
+            run("docker", "exec", rt.container("worker-0"), "rm", "-rf", residual)
         result = rt.reuse_worker_with_failover()
         after = rt.get(SSH_GROUP, "sshhosts", "worker-0")["spec"]["consumerRef"]["uid"]
         assert before != after

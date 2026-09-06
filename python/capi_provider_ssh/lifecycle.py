@@ -171,7 +171,7 @@ async def delete_machine(spec, status, name, namespace, meta, patch):
             check_current(namespace, name, uid)
             await operation.check()
             command = (
-                "kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet "
+                "kubeadm reset -f && test ! -d /var/lib/etcd/member && rm -rf /etc/kubernetes /var/lib/kubelet "
                 "/run/cluster-api/bootstrap-success.complete && "
                 "rm -rf /var/lib/capi-provider-ssh"
             )
