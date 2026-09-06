@@ -100,6 +100,7 @@ The Python runtime implements the legacy v1beta1 [CAPI provider contract](https:
 - Finalizers handle cleanup (kubeadm reset)
 - Standard CAPI pause/unpause is honored for bootstrap, reboot and cleanup
 - Two replicas coordinate through mandatory peering, renewed Leases and remote UID fencing
+- Readiness requires authenticated API access and the current process's fresh peer heartbeat; liveness stays local
 
 See [lifecycle safety and HA](docs/operations.md).
 
