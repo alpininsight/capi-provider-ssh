@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Locate container scan metadata
 - Report container vulnerability targets
 
+### Testing
+
+- Cover lifecycle failure boundaries and align operator docs
+
 ## [0.4.2] - 2026-08-14
 
 ### Bug Fixes
