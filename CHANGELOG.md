@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Validate updated hooks and normalize generated changelog
 - **runtime:** Upgrade to Python 3.14 with matching validation
 - **health:** Require API and fresh peering for readiness
+- **health:** Reduce probe memory and allow controller bursts
 
 ### CI/CD
 
