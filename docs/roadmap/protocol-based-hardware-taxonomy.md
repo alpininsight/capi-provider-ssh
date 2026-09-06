@@ -1,5 +1,11 @@
 # Protocol-Based Hardware Plugin Taxonomy
 
+Status: **design proposal, no runtime plugin API**. Protocol identifiers and
+capabilities in this document are not implemented drivers. Every future driver
+must integrate the ownership, fencing and outcome-observation contracts in
+[operations](../operations.md#future-plugins).
+
+
 ## Status
 
 **Accepted** — incorporated into `docs/roadmap.md` v0.3.x section.

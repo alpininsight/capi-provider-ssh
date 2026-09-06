@@ -1,162 +1,58 @@
-# Live Rollout Validation and Teardown
+# Rollout validation and teardown
 
-This runbook validates the full rollout path and defines a remove/teardown
-action for each build-up phase.
+Use the [support matrix](support-matrix.md) and [lifecycle/HA runbook](operations.md)
+as the acceptance contract. management-cloud uses **ArgoCD**. Its existing nodes
+are not currently managed by CAPI; installing controllers does not adopt them.
 
-Use this after merging provider changes into `develop` and before promoting
-`develop` to `main`.
+## Delivery order
 
-## Preconditions
+1. Record current Git commits, controller image digests, API/CRD versions,
+   provider placements and all CAPI/SSH inventory. Verify management API/etcd
+   availability through the configured HA endpoint.
+2. On a disposable cluster, run the unit/SSH suite, real API integration tests,
+   CAPI/CABPK/KCP init and joins, deletion/reuse and provider-failure tests.
+   An explicitly selected test lane must fail on missing prerequisites.
+3. Publish the reviewed provider image for both supported architectures and record
+   its digest. A provider PR merge does not move the Kubernetes GitOps image pin.
+4. Upgrade CAPI 1.9.2 to **1.12.11** first. Keep core, CABPK and KCP aligned. The
+   vendored Kubernetes manifests record upstream asset hashes and preserve their
+   existing HA/security overlays. Aggregated RBAC rules stay controller-owned.
+5. Deliver provider CRDs, RBAC, peering CRD/instance, PDB and matching image through
+   the Argo application. Wait for CRDs and both replicas. Check peering heartbeat
+   progress and run an authenticated API operation; `/healthz` alone is insufficient.
+6. Create or resume only the intended canary lifecycle objects. Verify Machine
+   bootstrap data, allocation UID/port, remote trust, providerID-to-Node association,
+   workload API availability and Node readiness.
+7. Delete the canary through CAPI. Keep Secrets until cleanup completes. Verify
+   finalizer removal, absence of stale remote ownership/bootstrap files, release
+   of the original host claim and reuse by a different Machine UID.
 
-- Flux source: `flux-system`
-- Provider Kustomization: `capi-provider-ssh`
-- Cluster Kustomization: `capi-clusters`
-- `kubectl` access to management cluster
-- Optional: `flux` CLI (fallback `kubectl` commands are included)
+The next CAPI upgrade to 1.14 is a separate stage after the bridge has passed.
+Do not combine it into an unsupported 1.9 → 1.14 jump.
 
-## Phase 0: Baseline Snapshot
+## Stop and recovery
 
-Build-up:
+Use CAPI pause, not GitOps synchronization suspension, to stop new lifecycle work.
+An accepted remote command can continue after pause or connection loss. Inspect
+it before recovery. Failed reset means Quarantined and retained finalizer/claim;
+never force-remove them. Reverting an image across the new persisted ownership
+contract or downgrading CAPI is not an automatic rollback procedure.
 
-```bash
-flux -n flux-system get kustomizations
-kubectl get clusters,machines -A
-kubectl get sshhosts,sshmachines -A
-kubectl -n capi-provider-ssh-system get deploy,pods
-```
+For an empty, controller-only management installation, rollback/forward recovery
+has a different scope from an active CAPI workload. Repeat the inventory check
+immediately before delivery; do not rely on the dated empty baseline.
 
-Teardown:
-- None needed. Snapshot is read-only.
+## Evidence to attach to the change
 
-## Phase 1: Reconcile Source and Provider
+| Gate | Required evidence |
+|---|---|
+| Source / CI | Provider and GitOps commit IDs; required checks and actual executed test lanes |
+| Image | Multi-architecture immutable digest and source revision |
+| GitOps | Argo target revision, synced image pin, CRD/peering ordering |
+| Runtime | Two Ready pods on distinct eligible nodes, fresh peer heartbeats, accepted API writes |
+| Lifecycle | Init, control-plane join, worker join, UID/providerID association, cleanup and host reuse |
+| HA | Active-pod failure during bootstrap, surviving remote guard, successful takeover without replay |
+| Recovery | Failed cleanup/quarantine, retained claim and Secrets, observed reboot completion |
 
-Build-up:
-
-```bash
-flux -n flux-system reconcile source git flux-system
-flux -n flux-system reconcile kustomization capi-provider-ssh --with-source
-```
-
-Validation:
-- `capi-provider-ssh` Kustomization is `Ready=True`.
-- Provider deployment is available.
-
-Teardown:
-
-```bash
-# Freeze provider reconciliation if bad manifests were applied
-flux -n flux-system suspend kustomization capi-provider-ssh
-```
-
-## Phase 2: Unsuspend Cluster Layer
-
-Build-up:
-
-```bash
-flux -n flux-system resume kustomization capi-clusters
-flux -n flux-system reconcile kustomization capi-clusters --with-source
-```
-
-Validation:
-- `capi-clusters` Kustomization is `Ready=True`.
-- CAPI objects are reconciling.
-
-Teardown:
-
-```bash
-# Stop cluster rollout quickly
-flux -n flux-system suspend kustomization capi-clusters
-```
-
-## Phase 3: Canary Cluster Validation
-
-Build-up:
-
-```bash
-# Replace values for your canary
-kubectl -n <namespace> get cluster <canary-cluster>
-kubectl -n <namespace> get machines -l cluster.x-k8s.io/cluster-name=<canary-cluster>
-kubectl -n <namespace> get sshmachines -l cluster.x-k8s.io/cluster-name=<canary-cluster>
-```
-
-Validation:
-- Control-plane and worker `Machine` objects progress normally.
-- `SSHMachine` objects provision and clear failure fields.
-- `SSHHost.spec.consumerRef` claims are consistent.
-
-Teardown:
-
-```bash
-# Make deletion durable in GitOps before deleting the Cluster object.
-#
-# Preferred path: remove the canary manifest from Git, push, then reconcile.
-# Alternative fast path: suspend capi-clusters if Git change is not immediate.
-flux -n flux-system suspend kustomization capi-clusters
-
-# Remove canary cluster resources
-kubectl -n <namespace> delete cluster <canary-cluster>
-
-# Verify cleanup (finalizers + host release)
-kubectl -n <namespace> get machines,sshmachines
-kubectl -n <namespace> get sshhosts -o custom-columns='NAME:.metadata.name,CONSUMER:.spec.consumerRef.name'
-
-# Verify no leaked integration test namespaces/resources remain
-kubectl get ns | rg '^test-capi-ssh-' || true
-kubectl get machines.cluster.x-k8s.io -A | rg 'test-capi-ssh' || true
-kubectl get sshmachines.infrastructure.alpininsight.ai -A | rg 'test-capi-ssh' || true
-```
-
-Git-first durable teardown (preferred):
-
-```bash
-# In your Git repo containing capi-clusters manifests:
-git rm <path-to-canary-cluster-manifest.yaml>
-git commit -m "chore: remove canary cluster after rollout validation"
-git push
-
-flux -n flux-system reconcile source git flux-system
-flux -n flux-system reconcile kustomization capi-clusters --with-source
-```
-
-Expected teardown outcome:
-- Canary `Machine`/`SSHMachine` objects are removed.
-- Claimed `SSHHost` entries have empty `consumerRef`.
-- No `test-capi-ssh-*` residue remains after integration teardown checks.
-
-## Phase 4: Promote Full Rollout
-
-Build-up:
-
-```bash
-flux -n flux-system reconcile source git flux-system
-flux -n flux-system reconcile kustomization capi-provider-ssh --with-source
-flux -n flux-system resume kustomization capi-clusters
-flux -n flux-system reconcile kustomization capi-clusters --with-source
-```
-
-Validation:
-- `flux -n flux-system get kustomizations` stays healthy.
-- `kubectl get clusters,machines -A` stabilizes without crash loops.
-- Provider logs show normal reconcile cadence.
-
-Teardown:
-
-```bash
-# Emergency stop
-flux -n flux-system suspend kustomization capi-clusters
-flux -n flux-system suspend kustomization capi-provider-ssh
-```
-
-## Phase 5: Optional DNS Promotion
-
-If your customer-facing environment is selected by DNS, follow
-[dns-cutover.md](dns-cutover.md) for staged promotion and rollback.
-
-## kubectl-Only Teardown Equivalents
-
-```bash
-kubectl -n flux-system patch kustomization capi-clusters --type=merge \
-  -p '{"spec":{"suspend":true}}'
-kubectl -n flux-system patch kustomization capi-provider-ssh --type=merge \
-  -p '{"spec":{"suspend":true}}'
-```
+A green CI run which skipped a lane is not evidence for that lane. Keep local,
+CI and live-cluster results separate in the handover.

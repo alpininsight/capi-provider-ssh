@@ -184,19 +184,16 @@ The provider consumes SSH private keys from Kubernetes Secrets referenced by
 | Image building | Not an infra provider concern | Packer, image pipelines |
 | Generic hook framework | YAGNI -- only external etcd exists as a specific feature | Reconsider when a second use case emerges |
 
-## Flux Rollout Sequencing
+## Rollout and lifecycle boundaries
 
-When management-cluster reconciliation is driven by Flux, rollout order is an
-operations concern:
+management-cloud uses ArgoCD. Install supported CAPI components, provider CRDs,
+RBAC/peering and the matching immutable image before creating lifecycle objects.
+GitOps suspension is not CAPI pause. See [operations](operations.md),
+[rollout validation](live-rollout-validation.md) and [support matrix](support-matrix.md).
 
-1. Reconcile provider manifests.
-2. Unsuspend cluster-level Kustomization (`capi-clusters`).
-3. Verify CAPI object health and provider controller health.
-
-Use [docs/flux-rollout.md](flux-rollout.md) for command-level steps and
-rollback.
-Use [docs/live-rollout-validation.md](live-rollout-validation.md) for full
-pre-release validation including per-phase teardown.
+Allocation, pause/identity checks, remote execution fencing and cleanup state
+are separated in `inventory.py`, `contracts.py`, `operations.py` and `lifecycle.py`.
+Hardware plugins remain a roadmap; no production plugin loader or drivers exist.
 
 ## How the Bootstrap Script Flows
 

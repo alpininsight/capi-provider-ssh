@@ -4,3 +4,5 @@ resources:
   - namespace.yaml
   - rbac.yaml
   - deployment.yaml
+  - peering.yaml
+  - pdb.yaml

@@ -37,7 +37,7 @@ class TestSSHConnectivity:
         assert result.exit_code == 1
         assert result.success is False
 
-    async def test_connect_timeout_unreachable(self, ssh_private_key):
+    async def test_connect_timeout_unreachable(self, ssh_private_key, ssh_known_hosts):
         """Connecting to an unreachable address fails across route-dependent error types."""
         with pytest.raises((TimeoutError, asyncssh.Error, OSError)):
             await SSHClient.connect(
@@ -45,6 +45,7 @@ class TestSSHConnectivity:
                 port=22,
                 user="root",
                 key=ssh_private_key,
+                known_hosts=ssh_known_hosts,
                 timeout=3,
             )
 
