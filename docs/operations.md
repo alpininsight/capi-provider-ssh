@@ -39,6 +39,50 @@ availability and an already running remote command may extend recovery.
 
 Source: [Kopf peering](https://docs.kopf.dev/en/stable/peering/).
 
+## Liveness, readiness and the live HA gate
+
+`/healthz` checks the local Kopf event loop. Its `runtime` probe reports whether
+configuration completed, the current process's startup time and its peering
+priority. It performs no Kubernetes requests: a temporary API outage must not
+turn into liveness-driven restart loops.
+
+The separate Kubernetes exec readiness probe runs
+`python -B -m capi_provider_ssh.readiness`. It requires local startup to have
+completed, an authenticated and TLS-verified SSHCluster list request, and a fresh
+heartbeat with this replica's priority in `ClusterKopfPeering`. That heartbeat
+must be newer than the current process's startup and younger than 30 seconds.
+A surviving peer from a previous container process cannot satisfy readiness.
+The standby passes the same checks as the active reconciler; priority does not
+make the standby unready. Explicit non-HA mode still requires CRD API access.
+
+API calls disable automatic retries and use one-second connect/two-second read
+timeouts. The probe has a ten-second execution budget and fails readiness after
+two consecutive failures. Readiness does not guarantee that every resource
+handler or watch is progressing; the lifecycle/failover tests and observed
+reconciliation remain separate acceptance evidence.
+
+Check every replica, rather than one reachable health endpoint:
+
+```bash
+kubectl --kubeconfig "$MANAGEMENT_KUBECONFIG" -n capi-provider-ssh-system \
+  exec "$PROVIDER_POD" -- python -B -m capi_provider_ssh.readiness
+kubectl --kubeconfig "$MANAGEMENT_KUBECONFIG" get clusterkopfpeerings.kopf.dev capi-provider-ssh
+```
+
+The probe command requires an image containing this module and a matching
+Deployment update. Updating an image tag or this repository alone does not update
+the management-cloud GitOps pin. For older images, inspect API reachability and
+peering directly; their `/healthz` endpoint does not establish readiness.
+
+If only one replica can reach the API, inspect that node's Cilium agent API
+connection and endpoint identity. A Ready Pod with Cilium's `reserved:init`
+identity can still have no permitted egress. Restore the reviewed host networking
+baseline through the infrastructure owner before accepting live HA. Keep
+operator access on the management API's HA endpoint.
+
+Sources: [Kopf probing](https://docs.kopf.dev/en/stable/probing/),
+[Cilium troubleshooting](https://docs.cilium.io/en/stable/operations/troubleshooting/).
+
 ## Allocation and cleanup
 
 `status.allocation` binds Machine UID, target address/port and, for pool mode,

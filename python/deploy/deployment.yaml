@@ -71,12 +71,12 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
           readinessProbe:
-            httpGet:
-              path: /healthz
-              port: health
+            exec:
+              command: [python, -B, -m, capi_provider_ssh.readiness]
             initialDelaySeconds: 5
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 2
           resources:
             requests:
               cpu: 50m
