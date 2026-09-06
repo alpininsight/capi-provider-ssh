@@ -1,60 +1,38 @@
-# DNS Cutover (Staging -> Production)
+# Environment traffic cutover
 
-This runbook covers swapping DNS so staging becomes production, while keeping
-the previous production environment as rollback backup.
+This is an operator planning checklist outside the SSH provider API. The provider
+does not manage DNS, application data replication or production promotion.
+The application/platform owners must approve the selected environment, change
+window, validation and recovery plan before traffic changes.
 
-## Decision
+## Preconditions and acceptance
 
-- Promote staging to production traffic.
-- Keep old production available as backup (read-only preferred).
-- Tear down old production only after review acceptance and rollback-window end.
+- Verify the exact application image, configuration, migrations, credentials and
+  certificates in the destination environment.
+- Establish data ownership, replication lag and the write/freeze strategy. An
+  old environment is a usable rollback target only if its data remains compatible.
+- Test the destination through its intended routing and authentication paths,
+  including background workers and critical read/write operations.
+- Record DNS/routing state and propagation behavior using the selected provider's
+  current official procedure; a low TTL does not force all clients to switch at once.
+- Define acceptance thresholds, monitoring owner, rollback trigger and the
+  conditions under which rollback would require data reconciliation.
 
-## Preconditions
+## Cutover and recovery
 
-- Staging and production run the same release artifact and config schema.
-- Database migrations are validated.
-- Secrets and certificates for public endpoints are present in staging.
-- Monitoring and alerting for staging are production-grade.
-- DNS TTL is reduced ahead of cutover (for example 60s).
+Freeze unrelated delivery, perform the reviewed DNS/routing change, and verify
+actual traffic, authentication, data operations and workers. Keep the old
+environment available for the agreed window with its write behavior controlled.
+Record the result in the private environment change record.
 
-## Cutover
+If acceptance fails, use the agreed recovery procedure. Repointing DNS alone is
+not sufficient when both environments may have accepted writes or schemas differ.
+Preserve diagnostic evidence and resolve the data boundary before resuming traffic.
 
-```bash
-# Example: switch primary record to staging endpoint
-# Replace host/target with your actual values.
-dnsctl record update app.example.com --type CNAME --target staging.example.net --ttl 60
-```
+## Retirement
 
-Operational actions:
-
-1. Freeze non-essential deploys during cutover.
-2. Switch DNS records from old production to staging.
-3. Keep old production online as rollback target.
-4. Run smoke checks (health, login, critical API paths, background jobs).
-
-## Rollback
-
-If issues are found, point DNS back to old production immediately.
-
-```bash
-dnsctl record update app.example.com --type CNAME --target prod-old.example.net --ttl 60
-```
-
-Then:
-- Confirm user traffic recovers.
-- Keep staging for debugging.
-- Retry cutover only after root cause and fix validation.
-
-## Teardown of Old Production
-
-Do not tear down old production before the customer sprint review.
-
-Safe teardown gate:
-- Customer review completed successfully.
-- Rollback no longer required for agreed window.
-- Backup/restore test from the new production is successful.
-
-After gate approval:
-1. Take final backup/snapshot of old production.
-2. Export logs/audit data needed for retention.
-3. Decommission old production resources.
+Retire the old environment only after acceptance, the agreed rollback window,
+backup/restore verification and the required audit retention are complete.
+Delete CAPI Machines through normal lifecycle orchestration and verify provider
+cleanup and host claims; do not delete CRDs or force finalizers as a shortcut.
+See [rollout validation](live-rollout-validation.md) and [operations](operations.md).

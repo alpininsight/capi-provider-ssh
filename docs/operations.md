@@ -159,8 +159,9 @@ never resent automatically. Cleanup waits for an unresolved reboot.
 
 If the host did not reboot and the outcome remains Unknown, establish through a
 trusted console that no delayed reboot is pending. A deliberate new request can
-then be issued, or the failed request can be marked resolved during an audited
-recovery. Never reset/reassign a host while a reboot may still execute.
+then be issued. If deletion is required instead, stop reconciliation and use an
+independently reviewed ownership-recovery plan. Status editing is not a routine
+recovery API. Never reset/reassign a host while a reboot may still execute.
 
 ## SSH trust and existing installations
 
@@ -186,8 +187,8 @@ inventory all Machines/hosts and their owner UIDs, pause lifecycle work, verify
 SSH trust and match each remote host to its intended Machine. For an existing
 provisioned Machine, migration must establish both API allocation/ownership and
 the matching remote owner record under a reviewed recovery procedure. Without
-that proof cleanup/reassignment remains blocked. Management-cloud's inspected
-baseline has no such objects, so there is no current fleet to adopt.
+that proof cleanup/reassignment remains blocked. Verify the actual object inventory
+before every migration; an earlier empty inventory is not current evidence.
 
 ## Test namespace audit
 
@@ -206,3 +207,14 @@ and reconcile unknown outcomes after restart. Out-of-band power drivers also
 need a common physical asset identity and protocol-specific fencing; an SSH
 Lease by address alone is not a complete plugin API. No hardware plugin runtime
 is delivered by this change.
+
+## Runbook ownership and diagnostics
+
+The platform owner controls cluster/host networking and recovery; the provider
+maintainer owns controller behavior and the release evidence. Record the symptom,
+affected operation/UID, desired and observed image, probe result, peer progress,
+restart/OOM counters and redacted condition data before choosing a recovery action.
+Keep raw credentials and host/bootstrap output out of public reports. There is no
+shipped Prometheus/SLO package; consumer alerts and dashboards must distinguish
+replica availability, coordination progress, lifecycle failures and audit findings.
+Use the [troubleshooting guide](faq.md) and [release recovery boundary](release-process.md).

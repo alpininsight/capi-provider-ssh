@@ -16,11 +16,14 @@ not establish a management-cloud rollout.
 | [#231: hooks and changelog normalization](https://github.com/alpininsight/capi-provider-ssh/pull/231) | `25cec5e2c6d09ede8fe92d19cf625d29e15d6cf4` | [All PR checks passed](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34048895074), including the new full hook job. Merged through the existing authenticated GitHub browser because the CLI OAuth token lacked workflow scope; no permission expansion or rule bypass |
 | [#239: API and peering readiness](https://github.com/alpininsight/capi-provider-ssh/pull/239) | `3e3cbcc1b91998e2230a16f1b973be2c9506848c` | PR checks and image publication passed. The develop run was cancelled by #240; its replacement exposed the probe memory issue below. The image has not been promoted to management-cloud |
 | [#240: generated changelog](https://github.com/alpininsight/capi-provider-ssh/pull/240) | `119b9540a81367b00234dcc5f758951b76b97410` | User merged after all PR checks passed; runtime inputs were unchanged. [Replacement CI](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34062084208) caught an exec probe exiting 137 despite printing ready; publication alone was not accepted as rollout evidence |
+| [#241: readiness memory budget](https://github.com/alpininsight/capi-provider-ssh/pull/241) | See merged PR | Current checks passed; post-merge review records the lightweight probe and concurrent memory tests. Deployment acceptance remains separate |
+| [#242: generated changelog](https://github.com/alpininsight/capi-provider-ssh/pull/242) | See merged PR | Final checks passed, but bot merging preceded their completion and cancelled earlier develop runs; require completed current checks before bot merging |
 
 The image published for `f250fc5` is
 `ghcr.io/alpininsight/capi-provider-ssh-python@sha256:defc3b65e982932eb9e6fcc43f578df6c0ef0133091f492222d774e5df71e2f7`.
 This records source/publication evidence, not the live provider image. The default
-branch had zero open Dependabot vulnerability alerts at this review.
+branch had zero open Dependabot vulnerability alerts at that historical review;
+re-query alerts for subsequent releases.
 
 | Recurring issue or ambiguity | Concrete improvement | Owner / evidence |
 |---|---|---|
@@ -36,6 +39,9 @@ branch had zero open Dependabot vulnerability alerts at this review.
 | A control-plane VM lacked the already defined persistent cloud-subnet route | After VM creation or address migration, verify both the persistent route file and the kernel route, Cilium API status, endpoint identity and Pod-to-API access | Platform; k8s #6557, existing `k8s_node_baseline` route contract |
 | The full Kubernetes SDK in each readiness exec consumed about 104 MiB; overlapping processes exceeded the 256 MiB cgroup limit | Use a small TLS-verified in-cluster client, test token rotation/denials and simultaneous probes, assert zero OOM kills/restarts; use the requested 128/512 MiB Burstable budget | Provider/CI; local bounded reproduction killed both operator and probe, following #240's exit 137 |
 | Changelog generation succeeded but `--auto` failed with `Pull request is in clean status` | Gate the current checks explicitly and distinguish normal clean-head merge eligibility from enabling auto-merge; preserve the actual failure category instead of diagnosing permissions generically | CI maintainer; #240 post-merge review records the proposed state-machine coverage |
+| Documentation retained pre-P1 cleanup, RBAC and lock behavior | Review each lifecycle/permission/default claim against code and tests; keep one canonical reference and link from the FAQ | Provider documentation reviewer |
+| A test parameter contained a large raw response body in its generated ID | Use short descriptive parameter IDs so failures remain diagnosable without huge payloads in CI output | Test maintainer |
+| Local tests did not exercise a consumer PR-only pipeline guard | Run the consumer's diff-based guard on the final PR head as well as its full test runner; consume entire streams under pipefail | GitOps change owner; k8s #6571 |
 
 Upstream sources checked during review: [Python sysconfig](https://docs.python.org/3.14/library/sysconfig.html#installation-paths),
 [Python 3.14 changes](https://docs.python.org/3.14/whatsnew/3.14.html),

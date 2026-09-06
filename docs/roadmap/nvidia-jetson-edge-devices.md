@@ -1,5 +1,10 @@
 # NVIDIA Jetson Edge Devices for CAPI SSH Provider
 
+> Historical design/research record. Examples are not deployable configuration;
+> hardware/version claims must be revalidated before use. Current implementation
+> and extension requirements are in the [support matrix](../support-matrix.md)
+> and [plugin design boundary](../plugin-contract.md).
+
 ## Status
 
 **Research complete** — informs v0.3.x hardware plugin taxonomy and device class

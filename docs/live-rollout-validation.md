@@ -1,8 +1,8 @@
 # Rollout validation and teardown
 
 Use the [support matrix](support-matrix.md) and [lifecycle/HA runbook](operations.md)
-as the acceptance contract. management-cloud uses **ArgoCD**. Its existing nodes
-are not currently managed by CAPI; installing controllers does not adopt them.
+as the acceptance contract. management-cloud uses **ArgoCD**. Inventory is
+environment-specific; installing controllers does not adopt existing nodes.
 
 ## Delivery order
 
@@ -14,7 +14,9 @@ are not currently managed by CAPI; installing controllers does not adopt them.
    An explicitly selected test lane must fail on missing prerequisites.
 3. Publish the reviewed provider image for both supported architectures and record
    its digest. A provider PR merge does not move the Kubernetes GitOps image pin.
-4. Upgrade CAPI 1.9.2 to **1.12.11** first. Keep core, CABPK and KCP aligned. The
+4. For an existing CAPI 1.9.2 installation, use **1.12.11** as the tested bridge;
+   do not repeat that upgrade on an installation already at the bridge. Keep core,
+   CABPK and KCP aligned. The
    vendored Kubernetes manifests record upstream asset hashes and preserve their
    existing HA/security overlays. Aggregated RBAC rules stay controller-owned.
 5. Deliver provider CRDs, RBAC, peering CRD/instance, PDB and matching image through
@@ -49,7 +51,7 @@ immediately before delivery; do not rely on the dated empty baseline.
 | Source / CI | Provider and GitOps commit IDs; required checks and actual executed test lanes |
 | Image | Multi-architecture immutable digest and source revision |
 | GitOps | Argo target revision, synced image pin, CRD/peering ordering |
-| Runtime | Two Ready pods on distinct eligible nodes, fresh peer heartbeats, accepted API writes |
+| Runtime | Two Ready pods on distinct eligible nodes, fresh peer heartbeats and authenticated CRD API reads; API writes are verified by the separate lifecycle lane |
 | Lifecycle | Init, control-plane join, worker join, UID/providerID association, cleanup and host reuse |
 | HA | Active-pod failure during bootstrap, surviving remote guard, successful takeover without replay |
 | Recovery | Failed cleanup/quarantine, retained claim and Secrets, observed reboot completion |

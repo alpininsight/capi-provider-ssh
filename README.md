@@ -2,234 +2,81 @@
 
 [![CI](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/ci-python.yml/badge.svg)](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/ci-python.yml)
 [![Container](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/container-build-python.yml/badge.svg)](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/container-build-python.yml)
-[![GitHub Release](https://img.shields.io/github/v/release/alpininsight/capi-provider-ssh)](https://github.com/alpininsight/capi-provider-ssh/releases/latest)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 
-A minimal [Cluster API](https://cluster-api.sigs.k8s.io/) infrastructure provider for SSH-reachable hosts.
+A Python infrastructure provider for [Cluster API](https://cluster-api.sigs.k8s.io/)
+that bootstraps and cleans up pre-provisioned Linux hosts over authenticated SSH.
+It coordinates host allocation, bootstrap execution, in-band reboot and deletion
+with persistent ownership checks across controller restarts.
 
-The implemented runtime is Python 3.13+ with Kopf and AsyncSSH.
-See the [support matrix](docs/support-matrix.md) for tested contracts, live state and planned capabilities.
+## Product scope
 
-## Purpose
+The OS and network must already be provisioned. The host preparation pipeline or
+reviewed kubeadm bootstrap configuration supplies the container runtime and
+Kubernetes packages. CAPI core, the kubeadm bootstrap provider and the kubeadm
+control-plane provider retain their own lifecycle responsibilities.
 
-Manage Kubernetes lifecycle on pre-provisioned servers reachable via SSH. No cloud API, no BMC/IPMI, no vendor lock-in.
+The implemented provider uses the **legacy v1beta1 CAPI contract**. The presence
+of `status.initialization.provisioned` does not establish v1beta2 conformance.
+Two controller replicas, API-aware readiness, host Leases and remote UID fencing
+provide lifecycle HA. A provider outage does not stop existing workload pods.
+Hardware power management, OS installation and a plugin runtime are not shipped.
 
-**Use case:** Dedicated servers, colocated hardware, or edge nodes reachable via SSH — with OS already installed (rescue mode, cloud-init, PXE, or manual).
+Read the [support matrix](docs/support-matrix.md) before choosing versions or
+planning production use. Tested behavior is distinct from a support SLA, hardware
+certification or a completed workload rollout in a particular environment.
 
-## Architecture
+## Start here
 
-```
-Management Cluster
-├── CAPI Core Controller
-├── kubeadm Bootstrap Provider
-├── kubeadm Control Plane Provider
-└── capi-provider-ssh Controller  ← this project
-        │
-        │ SSH (direct, VPN, or mesh)
-        ▼
-Target Hosts (any SSH-reachable server)
-├── kubeadm init/join (executed by provider)
-└── K8s node joins workload cluster
-```
+| Task | Guide |
+|---|---|
+| Evaluate the product and its boundaries | [Architecture](docs/architecture.md) |
+| Install a reviewed provider in a management cluster | [Installation](docs/installation.md) |
+| Configure inventory and Machines | [API and configuration reference](docs/api-reference.md) |
+| Operate HA, pause, reboot and cleanup | [Operations](docs/operations.md) |
+| Diagnose a failure | [Troubleshooting and FAQ](docs/faq.md) |
+| Validate a change or contribute | [Development](DEVELOPMENT.md), [testing](docs/testing.md), [contributing](CONTRIBUTING.md) |
+| Plan a release or GitOps rollout | [Release and delivery](docs/release-process.md) |
+| Review trust and report a vulnerability | [Security policy](SECURITY.md), [SSH key lifecycle](docs/ssh-key-lifecycle.md) |
+| Design an extension | [Plugin design boundary](docs/plugin-contract.md), [roadmap](docs/roadmap.md) |
 
-## CRDs
+The [documentation index](docs/README.md) identifies reference, procedures and
+historical evidence. Public product documentation excludes environment credentials,
+private host inventories and raw operational evidence bundles.
 
-| Kind | Purpose |
-|------|---------|
-| `SSHHost` | UID-bound host inventory with health and cleanup state |
-| `SSHCluster` | Cluster-level infrastructure (control plane endpoint) |
-| `SSHClusterTemplate` | ClusterClass template for `SSHCluster` objects |
-| `SSHMachine` | Per-machine infrastructure (SSH address, credentials) |
-| `SSHMachineTemplate` | Template for MachineDeployments |
+## Resources
 
-### ClusterClass Template Example
+All provider objects use `infrastructure.alpininsight.ai/v1beta1` and are namespaced.
+The [structural CRDs](shared/crds/) are the authoritative field definitions.
 
-```yaml
-apiVersion: infrastructure.alpininsight.ai/v1beta1
-kind: SSHClusterTemplate
-metadata:
-  name: ssh-cluster-template
-  namespace: default
-spec:
-  template:
-    spec:
-      controlPlaneEndpoint:
-        host: 10.0.0.10
-        port: 6443
----
-apiVersion: infrastructure.alpininsight.ai/v1beta1
-kind: SSHMachineTemplate
-metadata:
-  name: ssh-worker-template
-  namespace: default
-spec:
-  template:
-    spec:
-      hostSelector:
-        matchLabels:
-          role: worker
----
-apiVersion: cluster.x-k8s.io/v1beta1
-kind: ClusterClass
-metadata:
-  name: ssh-clusterclass
-  namespace: default
-spec:
-  infrastructure:
-    ref:
-      apiVersion: infrastructure.alpininsight.ai/v1beta1
-      kind: SSHClusterTemplate
-      name: ssh-cluster-template
-  workers:
-    machineDeployments:
-      - class: default-worker
-        template:
-          infrastructure:
-            ref:
-              apiVersion: infrastructure.alpininsight.ai/v1beta1
-              kind: SSHMachineTemplate
-              name: ssh-worker-template
-```
+| Kind | Responsibility |
+|---|---|
+| `SSHHost` | Host inventory, SSH reachability and UID-bound claim/cleanup state |
+| `SSHCluster` | Infrastructure endpoint for the owning CAPI Cluster |
+| `SSHClusterTemplate` | Template for cluster infrastructure |
+| `SSHMachine` | Immutable allocation, bootstrap ownership, readiness and lifecycle |
+| `SSHMachineTemplate` | Infrastructure template for CAPI-managed Machines |
 
-## CAPI Contract
+Delete Machines through CAPI. Cleanup retains the host claim and finalizer until
+owned cleanup succeeds; failed cleanup quarantines the host. Never bypass this
+contract to make a teardown appear successful.
 
-The Python runtime implements the legacy v1beta1 [CAPI provider contract](https://cluster-api.sigs.k8s.io/developer/providers/contracts/overview):
+## Local validation
 
-- `status.ready` signals CAPI v1beta1 infrastructure readiness; `initialization.provisioned` records provider completion
-- `spec.providerID` identifies the node
-- Finalizers handle cleanup (kubeadm reset)
-- Standard CAPI pause/unpause is honored for bootstrap, reboot and cleanup
-- Two replicas coordinate through mandatory peering, renewed Leases and remote UID fencing
-- Readiness requires authenticated API access and the current process's fresh peer heartbeat; liveness stays local
-
-See [lifecycle safety and HA](docs/operations.md).
-
-## Bootstrap Configuration
-
-Host preparation (installing containerd, kubeadm, kubelet) is handled by the
-**kubeadm bootstrap provider** via `preKubeadmCommands` — not by this
-infrastructure provider. No external tools (Ansible, Puppet, etc.) are needed.
-
-```yaml
-# KubeadmControlPlane or KubeadmConfigTemplate
-spec:
-  kubeadmConfigSpec:
-    preKubeadmCommands:
-      # System prerequisites
-      - swapoff -a && sed -i '/swap/d' /etc/fstab
-      - modprobe overlay && modprobe br_netfilter
-
-      # Container runtime
-      - apt-get update && apt-get install -y containerd
-      - systemctl enable --now containerd
-
-      # Kubernetes packages
-      - |
-        curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key \
-          | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-        echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
-          https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /" \
-          > /etc/apt/sources.list.d/kubernetes.list
-        apt-get update
-        apt-get install -y kubelet kubeadm kubectl
-        apt-mark hold kubelet kubeadm kubectl
-        systemctl enable kubelet
-```
-
-See [docs/architecture.md](docs/architecture.md) for the full rationale and
-production-ready examples.
-
-## SSH Key Lifecycle
-
-SSH private key management is standardized for GitOps workflows:
-
-- SOPS-encrypted Secret manifests
-- External Secrets syncing from a central secret manager
-- Versioned key rotation runbook with rollback steps
-
-See [docs/ssh-key-lifecycle.md](docs/ssh-key-lifecycle.md) and
-[python/deploy/examples/ssh-key-lifecycle/](python/deploy/examples/ssh-key-lifecycle/).
-
-## RBAC Requirements
-
-See [docs/rbac-requirements.md](docs/rbac-requirements.md) for the full set of
-RBAC permissions the controller requires. The reference implementation is in
-[python/deploy/rbac.yaml](python/deploy/rbac.yaml).
-
-## External Etcd
-
-The SSHMachine resource supports optional external etcd wiring -- distributing
-certificates and patching kubeadm configuration for external etcd clusters.
-
-See [docs/external-etcd.md](docs/external-etcd.md) for the Secret format
-contract and configuration reference.
-
-## Bootstrap Check Strategy
-
-`SSHMachine.spec.bootstrapCheckStrategy` controls post-bootstrap host readiness
-validation:
-
-- `ssh` (default): run kubelet readiness checks over SSH after bootstrap script execution.
-- `none`: skip host-side readiness checks and rely on higher-level readiness signals.
-
-Use `ssh` unless you explicitly need to bypass host-side checks.
-
-## Rollout and validation
-
-management-cloud uses ArgoCD. Follow [live rollout validation](docs/live-rollout-validation.md)
-for image/CRD ordering, the supported CAPI upgrade bridge and lifecycle evidence.
-The [operations runbook](docs/operations.md) covers pause, SSH trust, HA and recovery.
-
-## DNS Cutover
-
-For promoting staging to production traffic with rollback safety, use
-[docs/dns-cutover.md](docs/dns-cutover.md).
-
-## FAQ
-
-See [docs/faq.md](docs/faq.md) for answers to common questions about RBAC/Kopf
-permissions, cleanup behavior, health probing details, and troubleshooting.
-
-## Development
-
-See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup instructions.
+From `python/`, the default isolated lane uses the checked-in dependency lock:
 
 ```bash
-# Python
-cd python && uv sync && uv run pytest
-
-# Apply CRDs
-kubectl apply -k shared/crds/
+uv sync --frozen --dev
+uv run pytest -q -m 'not integration and not e2e and not kind'
 ```
 
-## Contributing
+Tests include real loopback SSH/TLS endpoints. The separate
+[Kind lifecycle lane](docs/testing.md) uses disposable hosts and an explicit
+test kubeconfig. Unit success alone does not certify a release or live rollout.
 
-We welcome contributions! By contributing to this project, you agree to the [Developer Certificate of Origin (DCO)](DCO).
+## License and contribution
 
-All commits must be signed off to certify that you wrote or have the right to submit the code:
-
-```bash
-git commit -s -m "feat: add my contribution"
-```
-
-This adds a `Signed-off-by` trailer to your commit message. If you forget, amend the commit:
-
-```bash
-git commit --amend -s
-```
-
-### Branch rules
-
-- `main` and `develop` are protected -- all changes require a pull request
-- Branch naming: `<type>/<short-description>` (e.g. `feat/add-ssh-key-rotation`)
-- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
-
-## License
-
-This project is licensed under the [Mozilla Public License 2.0](LICENSE).
-
-## Related
-
-- [insight-lima-k8s-capi](https://github.com/alpininsight/insight-lima-k8s-capi) - Management cluster (consumer of this provider)
-- [CAPI Provider Contract](https://cluster-api.sigs.k8s.io/developer/providers/contracts/overview)
-- [KubeCon 2022 Provider Tutorial](https://github.com/capi-samples/kubecon-na-2022-tutorial)
+[Mozilla Public License 2.0](LICENSE). Contributions follow [Conventional Commits](https://www.conventionalcommits.org/)
+and the [Developer Certificate of Origin](DCO); sign commits with `git commit -s`.
+Create a working branch from current `develop` and submit a PR back to `develop`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for review and documentation requirements.
