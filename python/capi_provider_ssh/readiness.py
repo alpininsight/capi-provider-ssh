@@ -5,15 +5,18 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import ssl
+from contextlib import contextmanager
 from datetime import UTC, datetime
-
-import kubernetes
+from pathlib import Path
 
 from capi_provider_ssh import API_GROUP, API_VERSION
 
 PEERING_NAME = "capi-provider-ssh"
 PEERING_LIFETIME = 30
 REQUEST_TIMEOUT = (1, 2)
+SERVICE_ACCOUNT_PATH = Path("/var/run/secrets/kubernetes.io/serviceaccount")
+MAX_API_RESPONSE = 1024 * 1024
 
 
 class NotReadyError(Exception):
@@ -22,12 +25,72 @@ class NotReadyError(Exception):
 
 def load_api_config() -> None:
     """Use the pod's rotating credentials or an explicitly selected local context."""
+    import kubernetes
+
     if os.environ.get("KUBERNETES_SERVICE_HOST"):
         kubernetes.config.load_incluster_config()
     elif os.environ.get("KUBECONFIG"):
         kubernetes.config.load_kube_config(config_file=os.environ["KUBECONFIG"])
     else:
         raise RuntimeError("Set KUBECONFIG explicitly for local execution, or run with in-cluster credentials")
+
+
+class InClusterAPI:
+    """Read only two API resources without loading the generated Kubernetes SDK.
+
+    Each request reads the projected token/CA afresh. Connections verify both
+    the CA and hostname, never follow redirects or proxies, and never retry.
+    """
+
+    def _get(self, path: str, timeout: tuple) -> dict:
+        token = (SERVICE_ACCOUNT_PATH / "token").read_text().strip()
+        if not token:
+            raise NotReadyError("service account token is unavailable")
+        context = ssl.create_default_context(cafile=str(SERVICE_ACCOUNT_PATH / "ca.crt"))
+        connection = http.client.HTTPSConnection(
+            os.environ["KUBERNETES_SERVICE_HOST"],
+            int(os.environ.get("KUBERNETES_SERVICE_PORT", "443")),
+            context=context,
+            timeout=timeout[0],
+        )
+        try:
+            connection.connect()
+            connection.sock.settimeout(timeout[1])
+            connection.request("GET", path, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+            response = connection.getresponse()
+            if response.status != 200:
+                raise NotReadyError(f"Kubernetes API returned HTTP {response.status}")
+            payload = response.read(MAX_API_RESPONSE + 1)
+            if len(payload) > MAX_API_RESPONSE:
+                raise NotReadyError("Kubernetes API response exceeds the probe budget")
+            result = json.loads(payload)
+            if not isinstance(result, dict):
+                raise NotReadyError("Kubernetes API response is not an object")
+            return result
+        finally:
+            connection.close()
+
+    def list_cluster_custom_object(self, group, version, plural, *, limit, _request_timeout):
+        return self._get(f"/apis/{group}/{version}/{plural}?limit={limit}", _request_timeout)
+
+    def get_cluster_custom_object(self, group, version, plural, name, *, _request_timeout):
+        return self._get(f"/apis/{group}/{version}/{plural}/{name}", _request_timeout)
+
+
+@contextmanager
+def readiness_api():
+    if os.environ.get("KUBERNETES_SERVICE_HOST"):
+        yield InClusterAPI()
+    else:
+        # Explicit developer kubeconfigs retain their supported auth plugins.
+        # The pod's hot exec path never imports the heavyweight generated SDK.
+        load_api_config()
+        import kubernetes
+
+        configuration = kubernetes.client.Configuration.get_default_copy()
+        configuration.retries = 0
+        with kubernetes.client.ApiClient(configuration) as client:
+            yield kubernetes.client.CustomObjectsApi(client)
 
 
 def local_runtime() -> dict:
@@ -89,11 +152,8 @@ def main() -> int:
     """Run as a readiness exec probe; never expose raw Kubernetes client errors."""
     try:
         runtime = local_runtime()
-        load_api_config()
-        configuration = kubernetes.client.Configuration.get_default_copy()
-        configuration.retries = 0
-        with kubernetes.client.ApiClient(configuration) as client:
-            check_readiness(kubernetes.client.CustomObjectsApi(client), runtime)
+        with readiness_api() as api:
+            check_readiness(api, runtime)
     except NotReadyError as exc:
         print(f"not ready: {exc}")
         return 1

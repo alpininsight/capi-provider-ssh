@@ -120,6 +120,7 @@ def test_local_liveness_has_no_dependency_on_upstream_api(monkeypatch):
 
 
 def test_probe_process_disables_retries_and_closes_client(monkeypatch, runtime):
+    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
     monkeypatch.setattr("capi_provider_ssh.readiness.local_runtime", lambda: runtime)
     load = Mock()
     monkeypatch.setattr("capi_provider_ssh.readiness.load_api_config", load)
@@ -154,3 +155,5 @@ def test_deployment_separates_liveness_from_api_readiness():
     assert container["readinessProbe"]["exec"]["command"] == ["python", "-B", "-m", "capi_provider_ssh.readiness"]
     assert container["readinessProbe"]["timeoutSeconds"] >= 10
     assert "exec" not in container["livenessProbe"]
+    assert container["resources"]["requests"]["memory"] == "128Mi"
+    assert container["resources"]["limits"]["memory"] == "512Mi"

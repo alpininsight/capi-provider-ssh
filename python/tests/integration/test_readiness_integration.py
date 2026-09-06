@@ -3,6 +3,7 @@
 import copy
 import subprocess
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import kubernetes
 import pytest
@@ -41,6 +42,16 @@ def exec_in_pod(runtime, pod, command):
     )
 
 
+def oom_kills(runtime, pod):
+    result = exec_in_pod(
+        runtime,
+        pod,
+        ["python", "-B", "-c", "from pathlib import Path; print(Path('/sys/fs/cgroup/memory.events').read_text())"],
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return int(dict(line.split() for line in result.stdout.splitlines() if line)["oom_kill"])
+
+
 def test_both_ha_replicas_are_ready_and_api_failure_does_not_fail_liveness(runtime):
     pods = runtime.core.list_namespaced_pod(
         NAMESPACE,
@@ -48,8 +59,15 @@ def test_both_ha_replicas_are_ready_and_api_failure_does_not_fail_liveness(runti
     ).items
     assert len(pods) == 2
     for pod in pods:
-        result = exec_in_pod(runtime, pod.metadata.name, PROBE)
-        assert result.returncode == 0, result.stdout + result.stderr
+        assert pod.spec.containers[0].resources.requests["memory"] == "128Mi"
+        assert pod.spec.containers[0].resources.limits["memory"] == "512Mi"
+        assert oom_kills(runtime, pod.metadata.name) == 0
+        # An operator may run a diagnostic concurrently with the kubelet probe.
+        # Loading the generated SDK in every exec exceeded the real pod budget.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _, name=pod.metadata.name: exec_in_pod(runtime, name, PROBE), range(2)))
+        for result in results:
+            assert result.returncode == 0, result.stdout + result.stderr
         failed_api = exec_in_pod(
             runtime,
             pod.metadata.name,
@@ -59,6 +77,10 @@ def test_both_ha_replicas_are_ready_and_api_failure_does_not_fail_liveness(runti
         assert "not ready:" in failed_api.stdout
         alive = exec_in_pod(runtime, pod.metadata.name, LIVENESS)
         assert alive.returncode == 0 and alive.stdout.strip() == "200"
+        assert oom_kills(runtime, pod.metadata.name) == 0
+        current = runtime.core.read_namespaced_pod(pod.metadata.name, NAMESPACE)
+        assert current.metadata.uid == pod.metadata.uid
+        assert current.status.container_statuses[0].restart_count == pod.status.container_statuses[0].restart_count
 
 
 def test_new_operator_with_unreachable_api_is_alive_but_never_ready(runtime):
