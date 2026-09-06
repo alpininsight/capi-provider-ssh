@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 import asyncssh
 import kubernetes
 
+from capi_provider_ssh.controllers.sshmachine import _sanitize_bootstrap_diagnostic_text
+
 SSH_GROUP = "infrastructure.alpininsight.ai"
 CAPI_GROUP = "cluster.x-k8s.io"
 
@@ -390,12 +392,21 @@ class Runtime:
         }
 
     def wait_provisioned(self, count):
+        def check():
+            machines = self.machines()
+            failed = [
+                m["metadata"]["name"]
+                for m in machines
+                if m.get("status", {}).get("bootstrapDiagnostics", {}).get("exitCode", 0) != 0
+            ]
+            assert not failed, f"Bootstrap failed on {failed}; see the sanitized host-error artifacts"
+            return (
+                len([m for m in machines if m.get("status", {}).get("initialization", {}).get("provisioned")]) >= count
+            )
+
         return eventually(
             f"{count} real kubeadm bootstraps",
-            lambda: (
-                len([m for m in self.machines() if m.get("status", {}).get("initialization", {}).get("provisioned")])
-                >= count
-            ),
+            check,
             timeout=600,
         )
 
@@ -411,3 +422,24 @@ class Runtime:
         ):
             result = self.api.list_namespaced_custom_object(group, "v1beta1", self.namespace, plural)
             (directory / f"{plural}.json").write_text(json.dumps(result, indent=2))
+        errors = {}
+        for role, target in self.targets.items():
+            try:
+                output = run(
+                    "docker",
+                    "exec",
+                    target["container"],
+                    "sh",
+                    "-c",
+                    "test ! -f /var/lib/capi-provider-ssh/bootstrap-output || "
+                    "tail -c 8192 /var/lib/capi-provider-ssh/bootstrap-output",
+                )
+                # Keep error lines only; never archive the successful kubeadm join command or payload.
+                errors[role] = [
+                    _sanitize_bootstrap_diagnostic_text(line)
+                    for line in output.splitlines()
+                    if "[ERROR" in line or "error execution phase" in line or "failed" in line.lower()
+                ]
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                errors[role] = ["Host diagnostic command unavailable"]
+        (directory / "host-errors.json").write_text(json.dumps(errors, indent=2))
