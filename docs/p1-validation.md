@@ -67,5 +67,17 @@ The final candidate's CI artifacts remain the authoritative commit-specific reco
 | A runtime minor upgrade did not update the unit-test interpreter | Keep Python 3.13 and 3.14 in the quality matrix, exercise the actual image in Kind and give each matrix job unique artifact names |
 | Installed controllers were described as a managed fleet | Check actual CAPI objects and providerIDs; date the live inventory and keep it separate from source/CI evidence |
 
-This is a pre-merge review record. After each PR merges, append its exact commit,
-CI/image/GitOps evidence and any post-merge surprises before closing delivery.
+The implementation evidence above was collected before the P1 merge. Dated
+post-merge evidence and recurring process improvements are in
+[the merge review log](merge-reviews.md). After each PR merges, append its exact
+commit, CI/image/GitOps evidence and any post-merge surprises before closing delivery.
+
+The dependency follow-up [#232](https://github.com/alpininsight/capi-provider-ssh/pull/232)
+merged as `60a9d13527bba12b984c2df0b3e21e1f2b2a937c`. Its updated P1 baseline passed
+[quality, API integration and real lifecycle/failover](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34048385973)
+and [container/version checks](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34048385977).
+Keep the Kopf 1.44.6 and Kubernetes-client 36.0.3 upgrade together: the
+[Kopf release](https://github.com/nolar/kopf/releases/tag/1.44.6) includes the login
+adaptation for Kubernetes-client 36.0.1 and later. Re-run the actual image lifecycle
+when combining a client/handler upgrade with a new Python minor. The support
+matrix distinguishes client API overlap from exact Kubernetes-version equivalence.

@@ -13,7 +13,8 @@ provider contract compatibility and a successful workload lifecycle are separate
 | Current CAPI adoption | No Cluster, Machine, KCP, SSHCluster, SSHMachine or SSHHost objects | Future lifecycle use | Controllers are installed; the current VMs are not CAPI-managed |
 | CAPI controller placement | Core and CABPK on workers 5/15; KCP on workers 11/5 | Two replicas across failure domains | Controllers need not run on control-plane nodes |
 | SSH controller placement | Control-plane affinity; currently cp-5 | Two distinct control-plane nodes and physical-host spread | Node affinity selects a role, not a fixed node; at least two eligible nodes are required |
-| Python / transport | Live image has older source/dependencies | Container target: Python 3.14; source minimum 3.13; Kopf and AsyncSSH from `uv.lock` | Unit/contract/real-SSH CI covers 3.13 and 3.14; Kind exercises the built 3.14 container. Later Python minors are not yet validated |
+| Python / transport | Live image has older source/dependencies | Container target: Python 3.14; source minimum 3.13; Kopf 1.44.6 and AsyncSSH 2.24.0 from `uv.lock` | Unit/contract/real-SSH CI covers 3.13 and 3.14; Kind exercises the built 3.14 container. Later Python minors are not yet validated |
+| Kubernetes Python client | Older live dependencies | 36.0.3 from `uv.lock` | Upstream generation targets Kubernetes 1.36; the provider's shared Core, Coordination and CustomObjects APIs are tested against 1.34.11. This is not an exact match of every client/server API |
 | kubeadm configuration | No current workload bootstrap | `v1beta3` and `v1beta4` rendering | v1beta3 uses argument maps; v1beta4 uses name/value lists; unknown versions fail closed |
 | Linux targets | No current provider-owned hosts | Preinstalled OS, root SSH, `flock`, kubeadm/container runtime supplied by host preparation | A container-based test is not certification of every Linux distribution or hardware platform |
 | External etcd | No current CAPI workload | Explicit kubeadm external configuration and certificate delivery | Configuration tests do not prove an external etcd cluster's availability; KCP/CABPK must also declare external etcd |
@@ -29,6 +30,7 @@ automatic rollback. Pause and use the forward-recovery procedure in [operations]
 Sources checked for this change:
 [CAPI version policy](https://main.cluster-api.sigs.k8s.io/reference/versions.html),
 [CAPI 1.9 matrix](https://release-1-9.cluster-api.sigs.k8s.io/reference/versions),
+[Kubernetes Python client matrix](https://github.com/kubernetes-client/python#compatibility),
 [legacy infrastructure-machine contract](https://cluster-api.sigs.k8s.io/developer/providers/contracts/infra-machine),
 [kubeadm v1beta4](https://kubernetes.io/docs/reference/config-api/kubeadm-config.v1beta4/).
 
