@@ -58,12 +58,26 @@ spec:
                       type: string
                     namespace:
                       type: string
+                    uid:
+                      type: string
+                      description: Immutable SSHMachine UID, required for controller-created claims.
+                sshHostKeyRef:
+                  type: object
+                  required:
+                    - name
+                  description: Verified OpenSSH known_hosts entries or host CA. Required for every SSH connection.
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                      default: known_hosts
             status:
               type: object
               properties:
                 ready:
                   type: boolean
-                  description: True when the host is reachable and available.
+                  description: Whether authenticated SSH connectivity succeeds; independent of claim/cleanup state.
                 inUse:
                   type: boolean
                   description: True when the host is claimed by an SSHMachine.
@@ -90,6 +104,21 @@ spec:
                         type: string
                       message:
                         type: string
+                    required:
+                      - type
+                      - status
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - type
+                phase:
+                  type: string
+                  enum:
+                    - Available
+                    - Claimed
+                    - Cleaning
+                    - Quarantined
+                cleanupReason:
+                  type: string
       additionalPrinterColumns:
         - name: Address
           type: string

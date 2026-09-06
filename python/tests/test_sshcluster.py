@@ -1,11 +1,26 @@
 """Tests for SSHCluster controller."""
 
+from unittest.mock import patch
+
 import kopf
+import pytest
 
 from capi_provider_ssh.controllers.sshcluster import (
     _has_capi_cluster_owner,
     _reconcile,
 )
+
+
+@pytest.fixture(autouse=True)
+def existing_capi_cluster():
+    with patch(
+        "capi_provider_ssh.contracts.get_object",
+        return_value={
+            "metadata": {"uid": "abc-123"},
+            "spec": {},
+        },
+    ):
+        yield
 
 
 def _conditions_by_type(status: dict) -> dict[str, dict]:

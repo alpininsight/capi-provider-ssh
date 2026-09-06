@@ -1,0 +1,22 @@
+[
+  {
+    "name": "core-components.yaml",
+    "url": "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.12.11/core-components.yaml",
+    "sha256": "bf97a42a0f316386e043dc43cf25bf98286fed45e2825e85d5706a4fdc08466c"
+  },
+  {
+    "name": "bootstrap-components.yaml",
+    "url": "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.12.11/bootstrap-components.yaml",
+    "sha256": "331b8dc942e66fa65e62369f2bba32e9c9c7cc8f9a24d32c5dcb5bd2f9266a97"
+  },
+  {
+    "name": "control-plane-components.yaml",
+    "url": "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.12.11/control-plane-components.yaml",
+    "sha256": "f78f64765a2ffd282d0fedb765e8f1632f39fb7735f866aa24004bf5e46d644a"
+  },
+  {
+    "name": "cert-manager.yaml",
+    "url": "https://github.com/cert-manager/cert-manager/releases/download/v1.20.3/cert-manager.yaml",
+    "sha256": "7ee74ba06845213e96d8ceaff3d20dd51e682765c1418eddda4e8780ba082261"
+  }
+]

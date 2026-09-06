@@ -1,5 +1,10 @@
 # Roadmap
 
+Hardware plugin interfaces, labels and protocol examples below are proposals.
+There is no plugin loader, versioned driver API or Redfish/IPMI/SNMP/GPIO runtime.
+See [the support matrix](support-matrix.md) for implemented and validated scope
+and [lifecycle boundaries](operations.md#future-plugins) for required driver contracts.
+
 ## Active Fix Plans
 
 - [Issue #119: Cloud-init bootstrap compatibility + SSHMachine reconcile reliability](roadmap/issue-119-bootstrap-cloud-init-and-reconcile-plan.md)
@@ -18,7 +23,7 @@ Build a dev-only provisioning extension for local infrastructure testing.
   - No Docker dependency in this provisioning path
   - Explicitly non-production objective (developer and lab environments only)
 
-## Current Capabilities (v0.3.x)
+## Provider capabilities and operational contracts
 
 | Feature | Status |
 |---------|--------|
@@ -31,11 +36,11 @@ Build a dev-only provisioning extension for local infrastructure testing.
 | Cleanup on deletion (kubeadm reset) | Implemented |
 | Pause/unpause support | Implemented |
 | SSH key lifecycle (SOPS/External Secrets + rotation runbook) | Implemented |
-| Flux rollout gate (explicit unsuspend/rollback runbook) | Implemented |
+| Argo delivery and CAPI pause contract | Documented; see operations and live rollout validation |
 | Live rollout validation + teardown runbook | Implemented |
 | DNS cutover runbook (staging promotion + rollback gate) | Implemented |
 
-## Planned: Image Builder Support (v0.2.x)
+## Planned: Image Builder Support
 
 Move from Tier 2 (`preKubeadmCommands` for package installation) to Tier 1
 (pre-built OS images) for production deployments.
@@ -47,7 +52,7 @@ Move from Tier 2 (`preKubeadmCommands` for package installation) to Tier 1
 - Image versioning tied to Kubernetes version (e.g., `k8s-1.32-ubuntu-24.04`)
 - Support for common provisioning workflows: rescue mode → write image → reboot → SSH bootstrap
 
-## Planned: Hardware Plugin Interface (v0.3.x)
+## Planned: Hardware Plugin Interface
 
 Extensible plugin system for out-of-band (OOB) management operations. SSH
 covers in-band management, but bare-metal servers and edge devices often need
@@ -157,8 +162,10 @@ but returns "unsupported" for `HealthCheck` and `FirmwareVersion`.
 
 ### Plugin Discovery via SSHHost
 
-The `hardware-plugin` label selects the protocol. Annotations provide
-connection details specific to that protocol.
+The proposed `hardware-plugin` label would select the protocol. These labels
+currently trigger no driver or power operation. A future contract must define
+capabilities, physical asset identity, fencing and restart-safe operation outcomes
+before connection annotations can become an executable API.
 
 **Enterprise server (Redfish BMC):**
 

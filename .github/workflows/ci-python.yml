@@ -56,7 +56,7 @@ jobs:
       - name: Pytest with coverage
         env:
           TEARDOWN_ARTIFACT_DIR: ${{ github.workspace }}/python/test-artifacts/teardown
-        run: uv run pytest -q --cov=capi_provider_ssh --cov-report=term-missing --cov-report=xml
+        run: uv run pytest -q -m 'not integration and not e2e and not kind' --cov=capi_provider_ssh --cov-report=term-missing --cov-report=xml
 
       - name: Upload Python coverage artifact
         if: always()
@@ -73,6 +73,42 @@ jobs:
           name: teardown-debug-artifacts
           path: python/test-artifacts/teardown
           if-no-files-found: ignore
+
+  kind-lifecycle:
+    name: CAPI lifecycle and provider failover
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
+        with:
+          version: v1.34.11
+      - name: Install verified Kind binary
+        run: |
+          curl --fail --location --retry 3 -o /tmp/kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          echo 'aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  /tmp/kind' | sha256sum --check
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+      - name: Test real CAPI bootstrap, cleanup, reuse and crash recovery
+        run: bash scripts/test-kind-lifecycle.sh
+      - name: Upload lifecycle evidence (no Secrets or kubeconfigs)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kind-lifecycle-evidence
+          path: python/test-artifacts/kind
+          if-no-files-found: error
 
   manifests:
     name: Validate CRDs and manifests

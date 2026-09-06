@@ -4,9 +4,9 @@ The SSHMachine resource supports optional external etcd wiring via
 `spec.externalEtcd`. When configured, the controller:
 
 1. Reads etcd CA, client certificate, and client key from Kubernetes Secrets
-2. Uploads the certificate material to deterministic paths on the target host
+2. Stages certificates privately and installs them under the remote operation lock
 3. Patches the kubeadm `ClusterConfiguration` in the bootstrap data with
-   API server arguments pointing to the external etcd cluster
+   `etcd.external` and version-correct API server arguments pointing to the external etcd cluster
 
 This is useful when the etcd cluster is managed separately from the Kubernetes
 control plane (for example, a dedicated etcd cluster on bare-metal nodes).
@@ -72,11 +72,18 @@ data Secret with the following `apiServer.extraArgs`:
 This patching happens in-memory before the bootstrap script is uploaded. The
 original bootstrap Secret is not modified.
 
-If the bootstrap data contains no `ClusterConfiguration` (e.g., a worker
-node joining via `JoinConfiguration`), the controller raises a
-`PermanentError` and fails reconciliation. Only configure `externalEtcd`
-on control-plane SSHMachines whose bootstrap data includes a
-`ClusterConfiguration` document.
+The same external etcd endpoints and certificate paths must also be declared in
+`KubeadmControlPlane.spec.kubeadmConfigSpec.clusterConfiguration.etcd.external`
+or the owning `KubeadmConfig`. Otherwise KCP would still assume stacked etcd.
+Follow the [upstream CAPI external-etcd contract](https://cluster-api.sigs.k8s.io/tasks/external-etcd)
+for the cluster CA/client Secrets; SSH certificate delivery does not replace it.
+
+For initial control-plane bootstrap the provider writes `etcd.external` and
+removes any conflicting local-etcd configuration. `v1beta3` arguments are maps;
+`v1beta4` arguments are lists of name/value pairs. Unrelated repeated arguments
+are preserved. A control-plane `JoinConfiguration` uses the existing cluster's
+configuration and still receives the certificates. A worker-only join or an
+unrecognized kubeadm API with externalEtcd configured is rejected.
 
 ## Example
 
@@ -92,9 +99,8 @@ spec:
   user: root
   sshKeyRef:
     name: ssh-key
-  hostSelector:
-    matchLabels:
-      role: control-plane
+  sshHostKeyRef:
+    name: verified-ssh-hosts
   externalEtcd:
     endpoints:
       - https://10.0.0.10:2379
@@ -112,6 +118,7 @@ spec:
       keyFile: /etc/kubernetes/pki/etcd-external/client.key
 ```
 
-The Secrets referenced above must exist in the same namespace as the
-SSHMachine and contain PEM-encoded certificate material under the `value`
-key (or the custom key specified in the ref).
+All Secrets must exist in the SSHMachine namespace. The external-etcd Secrets
+contain PEM-encoded certificate/key material under `value` (or the custom key
+specified in the ref). The separate SSH client key and verified host-trust
+Secrets follow the [SSH trust contract](operations.md#ssh-trust-and-existing-installations).

@@ -7,10 +7,12 @@ verifies ownership and marks infrastructure as ready.
 
 import datetime
 import logging
+import os
 
 import kopf
 
 from capi_provider_ssh import API_GROUP, API_VERSION
+from capi_provider_ssh.contracts import is_paused
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +84,7 @@ def _cluster_lifecycle_conditions(
 
 def _reconcile(spec: dict, name: str, namespace: str, meta: dict, patch: kopf.Patch) -> None:
     """Idempotent reconciliation logic for SSHCluster."""
-    if spec.get("paused"):
+    if is_paused(spec, meta, namespace):
         logger.info("SSHCluster %s/%s is paused, skipping reconciliation", namespace, name)
         return
 
@@ -152,6 +154,7 @@ async def sshcluster_create(spec, name, namespace, meta, patch, **_kwargs):
     _reconcile(spec, name, namespace, meta, patch)
 
 
+@kopf.timer(API_GROUP, API_VERSION, "sshclusters", interval=int(os.environ.get("RECONCILE_INTERVAL", "60")))
 @kopf.on.update(API_GROUP, API_VERSION, "sshclusters")
 async def sshcluster_update(spec, name, namespace, meta, patch, **_kwargs):
     """Handle SSHCluster updates -- re-reconcile idempotently."""
@@ -160,8 +163,10 @@ async def sshcluster_update(spec, name, namespace, meta, patch, **_kwargs):
 
 
 @kopf.on.delete(API_GROUP, API_VERSION, "sshclusters")
-async def sshcluster_delete(name, namespace, patch=None, **_kwargs):
-    """Handle SSHCluster deletion -- no-op cleanup."""
+async def sshcluster_delete(name, namespace, patch=None, spec=None, meta=None, **_kwargs):
+    """Handle SSHCluster deletion -- no-op cleanup, respecting CAPI pause."""
+    if is_paused(spec or {}, meta or {}, namespace):
+        raise kopf.TemporaryError("Cluster deletion is paused by CAPI", delay=15)
     if patch is not None:
         patch.status["initialization"] = {"provisioned": False}
         patch.status["ready"] = False

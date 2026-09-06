@@ -22,9 +22,8 @@ spec:
               properties:
                 address:
                   type: string
-                  description: >-
-                    SSH-reachable hostname or IP. Set directly or populated
-                    by the controller from an SSHHost when hostSelector is used.
+                  description: SSH-reachable hostname or IP. Set directly or populated by the controller from an
+                    SSHHost when hostSelector is used.
                 port:
                   type: integer
                   default: 22
@@ -49,10 +48,8 @@ spec:
                       description: Key within the Secret that holds the private key data.
                 hostSelector:
                   type: object
-                  description: >-
-                    Label selector for SSHHost pool-based selection.
-                    When set, the controller claims an available SSHHost
-                    matching these labels and copies its address/user/sshKeyRef.
+                  description: Label selector for SSHHost pool-based selection. When set, the controller claims
+                    an available SSHHost matching these labels and copies its address/user/sshKeyRef.
                   properties:
                     matchLabels:
                       type: object
@@ -61,14 +58,12 @@ spec:
                       description: Labels that SSHHost CRs must match.
                 hostRef:
                   type: string
-                  description: >-
-                    Reference to the claimed SSHHost in namespace/name format.
-                    Set by the controller when a host is claimed via hostSelector.
+                  description: Reference to the claimed SSHHost in namespace/name format. Set by the controller
+                    when a host is claimed via hostSelector.
                 externalEtcd:
                   type: object
-                  description: >-
-                    Optional external etcd wiring. When set, the controller
-                    distributes certs and injects kubeadm apiServer etcd args.
+                  description: Optional external etcd wiring. When set, the controller distributes certs and injects
+                    kubeadm apiServer etcd args.
                   properties:
                     endpoints:
                       type: array
@@ -120,20 +115,16 @@ spec:
                           default: /etc/kubernetes/pki/etcd-external/client.key
                 dryRun:
                   type: boolean
-                  description: >-
-                    When true, validates all prerequisites (SSH connectivity,
-                    bootstrap data, secrets) but does not execute the bootstrap
-                    script.
+                  description: Validate prerequisites and authenticated SSH without bootstrap or reboot. Deletion
+                    only cleans a UID-owned bootstrap previously started by this provider.
                 bootstrapCheckStrategy:
                   type: string
                   default: ssh
                   enum:
                     - ssh
                     - none
-                  description: >-
-                    Strategy for post-bootstrap host readiness validation.
-                    `ssh` runs kubelet readiness checks via SSH (default).
-                    `none` skips host-side readiness checks after bootstrap execution.
+                  description: Strategy for post-bootstrap host readiness validation. `ssh` runs kubelet readiness
+                    checks via SSH (default). `none` skips host-side readiness checks after bootstrap execution.
                 remediation:
                   type: object
                   properties:
@@ -146,10 +137,21 @@ spec:
                           description: Timestamp token used to request an in-band SSH reboot.
                 providerID:
                   type: string
-                  description: "Provider ID in the format ssh://<address>."
+                  description: Provider ID in the format ssh://<address>.
                 paused:
                   type: boolean
                   description: Indicates the resource is paused and will not be reconciled.
+                sshHostKeyRef:
+                  type: object
+                  required:
+                    - name
+                  description: Verified OpenSSH known_hosts entries or host CA. Required for every SSH connection.
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                      default: known_hosts
             status:
               type: object
               properties:
@@ -189,6 +191,12 @@ spec:
                         type: string
                       message:
                         type: string
+                    required:
+                      - type
+                      - status
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - type
                 ready:
                   type: boolean
                   description: Legacy readiness flag for CAPI machine-controller compatibility (mirrors initialization.provisioned).
@@ -223,6 +231,137 @@ spec:
                           type: boolean
                         message:
                           type: string
+                        phase:
+                          type: string
+                          enum:
+                            - Prepared
+                            - Submitted
+                            - Succeeded
+                            - Failed
+                            - Unknown
+                        startedAt:
+                          type: string
+                          format: date-time
+                        previousBootID:
+                          type: string
+                        observedBootID:
+                          type: string
+                allocation:
+                  type: object
+                  required:
+                    - machineUID
+                    - address
+                    - port
+                  properties:
+                    address:
+                      type: string
+                      description: SSH-reachable hostname or IP. Set directly or populated by the controller from
+                        an SSHHost when hostSelector is used.
+                    port:
+                      type: integer
+                      default: 22
+                      minimum: 1
+                      maximum: 65535
+                      description: SSH port.
+                    user:
+                      type: string
+                      default: root
+                      description: SSH user for authentication.
+                    sshKeyRef:
+                      type: object
+                      required:
+                        - name
+                      properties:
+                        name:
+                          type: string
+                          description: Name of the Secret containing the SSH private key.
+                        key:
+                          type: string
+                          default: value
+                          description: Key within the Secret that holds the private key data.
+                    sshHostKeyRef:
+                      type: object
+                      required:
+                        - name
+                      description: Verified OpenSSH known_hosts entries or host CA. Required for every SSH connection.
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                          default: known_hosts
+                    hostRef:
+                      type: string
+                      description: Reference to the claimed SSHHost in namespace/name format. Set by the controller
+                        when a host is claimed via hostSelector.
+                    machineUID:
+                      type: string
+                    hostUID:
+                      type: string
+                bootstrapOwnership:
+                  type: object
+                  required:
+                    - machineUID
+                    - address
+                    - port
+                  properties:
+                    address:
+                      type: string
+                      description: SSH-reachable hostname or IP. Set directly or populated by the controller from
+                        an SSHHost when hostSelector is used.
+                    port:
+                      type: integer
+                      default: 22
+                      minimum: 1
+                      maximum: 65535
+                      description: SSH port.
+                    user:
+                      type: string
+                      default: root
+                      description: SSH user for authentication.
+                    sshKeyRef:
+                      type: object
+                      required:
+                        - name
+                      properties:
+                        name:
+                          type: string
+                          description: Name of the Secret containing the SSH private key.
+                        key:
+                          type: string
+                          default: value
+                          description: Key within the Secret that holds the private key data.
+                    sshHostKeyRef:
+                      type: object
+                      required:
+                        - name
+                      description: Verified OpenSSH known_hosts entries or host CA. Required for every SSH connection.
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                          default: known_hosts
+                    hostRef:
+                      type: string
+                      description: Reference to the claimed SSHHost in namespace/name format. Set by the controller
+                        when a host is claimed via hostSelector.
+                    machineUID:
+                      type: string
+                    hostUID:
+                      type: string
+                    startedAt:
+                      type: string
+                      format: date-time
+                cleanup:
+                  type: object
+                  properties:
+                    phase:
+                      type: string
+                      enum:
+                        - Running
+                        - Succeeded
+                        - Failed
       additionalPrinterColumns:
         - name: Address
           type: string

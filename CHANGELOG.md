@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **container:** Exclude transient build tooling
 - **ci:** Inspect container metadata as root
 - **container:** Remove vulnerable pip tooling
+- Fence SSH lifecycle operations and validate provider HA 
 
 ### CI/CD
 
