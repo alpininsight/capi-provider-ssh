@@ -19,6 +19,19 @@ permissions:
   contents: read
 
 jobs:
+  pre-commit:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Run every configured file hook
+        run: uvx --python 3.14 --from pre-commit==4.6.2 pre-commit run --all-files
+
   python-quality:
     name: Python quality
     runs-on: ubuntu-latest

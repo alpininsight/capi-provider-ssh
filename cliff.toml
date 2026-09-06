@@ -42,6 +42,8 @@ trim = true
 # Postprocessors for commit messages
 postprocessors = [
     { pattern = '<REPO>', replace = "https://github.com/alpininsight/capi-provider-ssh" },
+    # Removing PR numbers from commit messages can leave trailing whitespace.
+    { pattern = '(?m)[ \t]+$', replace = "" },
 ]
 
 [git]
