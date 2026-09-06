@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **container:** Remove vulnerable pip tooling
 - Fence SSH lifecycle operations and validate provider HA
 - **ci:** Validate updated hooks and normalize generated changelog
+- **runtime:** Upgrade to Python 3.14 with matching validation
 
 ### CI/CD
 
