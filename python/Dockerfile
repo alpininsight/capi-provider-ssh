@@ -14,7 +14,7 @@ COPY capi_provider_ssh/ capi_provider_ssh/
 # vendored packages that should not expand the runtime attack surface.
 RUN uv sync --frozen --no-cache --no-dev --no-editable && \
     python -m pip uninstall --yes pip && \
-    rm -rf /usr/local/lib/python3.13/ensurepip
+    python -c 'import pathlib, shutil, sysconfig; shutil.rmtree(pathlib.Path(sysconfig.get_path("stdlib")) / "ensurepip")'
 
 # Use the virtualenv created at build time; avoid runtime `uv run` cache writes.
 ENV PATH="/app/.venv/bin:${PATH}"

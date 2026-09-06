@@ -13,7 +13,7 @@ provider contract compatibility and a successful workload lifecycle are separate
 | Current CAPI adoption | No Cluster, Machine, KCP, SSHCluster, SSHMachine or SSHHost objects | Future lifecycle use | Controllers are installed; the current VMs are not CAPI-managed |
 | CAPI controller placement | Core and CABPK on workers 5/15; KCP on workers 11/5 | Two replicas across failure domains | Controllers need not run on control-plane nodes |
 | SSH controller placement | Control-plane affinity; currently cp-5 | Two distinct control-plane nodes and physical-host spread | Node affinity selects a role, not a fixed node; at least two eligible nodes are required |
-| Python / transport | Live image has older source/dependencies | Python 3.13+, Kopf, AsyncSSH from `uv.lock` | CI and local version evidence belong to the candidate commit |
+| Python / transport | Live image has older source/dependencies | Container target: Python 3.14; source minimum 3.13; Kopf and AsyncSSH from `uv.lock` | Unit/contract/real-SSH CI covers 3.13 and 3.14; Kind exercises the built 3.14 container. Later Python minors are not yet validated |
 | kubeadm configuration | No current workload bootstrap | `v1beta3` and `v1beta4` rendering | v1beta3 uses argument maps; v1beta4 uses name/value lists; unknown versions fail closed |
 | Linux targets | No current provider-owned hosts | Preinstalled OS, root SSH, `flock`, kubeadm/container runtime supplied by host preparation | A container-based test is not certification of every Linux distribution or hardware platform |
 | External etcd | No current CAPI workload | Explicit kubeadm external configuration and certificate delivery | Configuration tests do not prove an external etcd cluster's availability; KCP/CABPK must also declare external etcd |

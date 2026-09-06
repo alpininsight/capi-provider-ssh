@@ -62,6 +62,9 @@ The final candidate's CI artifacts remain the authoritative commit-specific reco
 | Test cleanup could hide provider failures | Never strip finalizers in fixtures; preserve keys/ownership until normal cleanup succeeds |
 | Upstream aggregated RBAC conflicted under server-side apply | Omit controller-owned aggregated `rules`; validate the actual upgrade path without force-conflicts |
 | Version config parsed only after merge, using differing GitVersion majors | Use GitVersion 6.8.x for PR version validation, image publication and release |
+| A Python base-image upgrade left the old minor version in the installer-cleanup path | Resolve the standard-library path through `sysconfig`; test that both shipped interpreters cannot import `pip` or `ensurepip` |
+| Dependency PRs still showed green checks from before the P1 test expansion | Update older branches before assessing the new API integration and provider-failover results |
+| A runtime minor upgrade did not update the unit-test interpreter | Keep Python 3.13 and 3.14 in the quality matrix, exercise the actual image in Kind and give each matrix job unique artifact names |
 | Installed controllers were described as a managed fleet | Check actual CAPI objects and providerIDs; date the live inventory and keep it separate from source/CI evidence |
 
 This is a pre-merge review record. After each PR merges, append its exact commit,
