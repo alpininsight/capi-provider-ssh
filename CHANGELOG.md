@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Explain CAPI contract migration and current gaps
 - Schedule Q4 migration and assess OSS readiness
 - **context7:** Register repository-managed provider documentation
+- **packages:** Document verified container delivery and discovery
 
 ### Miscellaneous
 
