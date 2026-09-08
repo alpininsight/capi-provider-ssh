@@ -83,8 +83,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       major_minor_patch: ${{ steps.gitversion.outputs.MajorMinorPatch }}
-      semver: ${{ steps.gitversion.outputs.SemVer }}
-      package_version: ${{ steps.package.outputs.version }}
+      semver: ${{ steps.identity.outputs.semver }}
+      package_version: ${{ steps.identity.outputs.package_version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -113,27 +113,26 @@ jobs:
           overrideConfig: |
             update-build-number=false
 
-      - name: Reject unresolved labels and invalid version tags
-        env:
-          SEMVER: ${{ steps.gitversion.outputs.SemVer }}
-        run: |
-          [[ "$SEMVER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
-
       - name: Set up Python for artifact verification
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.14'
 
+      - name: Select and validate build identity
+        id: identity
+        env:
+          BUILD_REF: ${{ github.ref }}
+          SEMVER: ${{ steps.gitversion.outputs.SemVer }}
+          MAJOR_MINOR_PATCH: ${{ steps.gitversion.outputs.MajorMinorPatch }}
+        run: python3 python/scripts/select_build_version.py >> "$GITHUB_OUTPUT"
+
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
 
       - name: Validate package identity, licenses and isolated sdist rebuild
-        id: package
         env:
-          SEMVER: ${{ steps.gitversion.outputs.SemVer }}
-        run: |
-          python3 python/scripts/check_package.py --version "$SEMVER"
-          python3 -c 'import os, runpy; version = runpy.run_path("python/package_version.py")["normalize_version"](os.environ["SEMVER"]); print(f"version={version}")' >> "$GITHUB_OUTPUT"
+          SEMVER: ${{ steps.identity.outputs.semver }}
+        run: python3 python/scripts/check_package.py --version "$SEMVER"
 
   build-and-push:
     name: Build and publish Python container
@@ -210,6 +209,9 @@ jobs:
             org.opencontainers.image.documentation=https://github.com/alpininsight/capi-provider-ssh/tree/main/docs
             org.opencontainers.image.description=Cluster API infrastructure provider for SSH-reachable hosts
             org.opencontainers.image.version=${{ needs.version.outputs.semver }}
+          annotations: |
+            org.opencontainers.image.licenses=MPL-2.0
+            org.opencontainers.image.version=${{ needs.version.outputs.semver }}
 
       - name: Build and push image
         id: build
@@ -222,6 +224,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64

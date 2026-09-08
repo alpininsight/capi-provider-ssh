@@ -7,6 +7,23 @@ The latest stable minor (currently 0.4.x) is maintained under the
 [maintenance/backport policy](maintenance-policy.md). No separate commercial SLA,
 LTS duration or hardware certification is declared.
 
+## v0.4.4 package identity notice
+
+The `v0.4.4` source release and its published image refer to the same commit, but
+the image's OCI version label is `0.4.4-1` and its Python distribution identifies
+itself as `0.4.4.dev0+gitversion.31`. The post-merge audit of
+[release PR #263](https://github.com/alpininsight/capi-provider-ssh/pull/263)
+found that stable tag selection and package version selection used different
+GitVersion outputs. The required checks established internal package consistency
+but missed the mismatch with the stable release tag.
+
+The correction in this source selects the stable version on `main` and retains
+prerelease identity elsewhere. It does not repair the published `v0.4.4` artifact.
+Before a new stable promotion, require a new patch release with matching tag,
+package version and OCI metadata, verified by immutable digest. The maintained
+minor remains **0.4.x**; this finding alone does not establish a lifecycle failure
+or a change in the live consumer deployment.
+
 ## Tested baseline
 
 | Layer | Implemented / validated baseline | Boundary |
