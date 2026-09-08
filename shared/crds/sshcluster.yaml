@@ -57,6 +57,10 @@ spec:
                         type: string
                       status:
                         type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        minimum: 0
                       lastTransitionTime:
                         type: string
                         format: date-time
@@ -64,9 +68,15 @@ spec:
                         type: string
                       message:
                         type: string
+                    required:
+                      - type
+                      - status
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys:
+                    - type
                 ready:
                   type: boolean
-                  description: Legacy readiness flag for KCP compatibility (mirrors initialization.provisioned).
+                  description: Legacy readiness flag for KCP compatibility (false during deletion, even after successful provisioning).
                 failureReason:
                   type: string
                 failureMessage:

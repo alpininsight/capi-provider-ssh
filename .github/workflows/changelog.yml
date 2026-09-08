@@ -109,7 +109,7 @@ jobs:
           echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
           echo "pr_head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for checks and merge the reviewed changelog commit
+      - name: Validate changelog against checks and current review policy
         if: steps.generate.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN }}

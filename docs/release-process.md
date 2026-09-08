@@ -2,7 +2,7 @@
 
 The change owner coordinates source review and evidence. The platform owner
 controls the consumer GitOps rollout. A security fix also follows
-[SECURITY.md](../SECURITY.md). Neither a release nor a merge authorizes unrelated
+[SECURITY.md](../SECURITY.md) and the [maintenance/backport policy](maintenance-policy.md). Neither a release nor a merge authorizes unrelated
 infrastructure changes.
 
 ## Source acceptance
@@ -27,6 +27,42 @@ The release and container workflows can finish in either order. An existing Git
 tag on the build's own commit still permits the matching image version tag; a
 tag on a different commit is preserved. Verify the release tag, image version
 tag and immutable source digest together after publication.
+
+## Python package identity and license verification
+
+The required version job supplies its GitVersion `SemVer` to both validation and
+published container builds as `PROVIDER_VERSION`. The installed Python package,
+its `__version__` and wheel/sdist metadata use the PEP 440 equivalent:
+
+| Build identity | Python metadata |
+|---|---|
+| Stable `v0.4.3` / `0.4.3` | `0.4.3` |
+| `0.5.0-alpha.12`, beta or RC | `0.5.0a12`, corresponding `b` or `rc` version |
+| Other GitVersion branch prerelease | `<base>.dev0+gitversion.<hex-encoded-prerelease>`; identity retained without implying a stable release |
+| Source without release input | `0.0.0+unversioned`; no release claim |
+
+The Hatch build hook freezes the calculated value in each artifact. Rebuilding
+from a source archive needs neither Git nor the original version environment.
+The non-editable container installation removes the source copy so it cannot
+shadow the installed package's release identity. The OCI version label retains
+the source SemVer; compare using the documented conversion above.
+
+Both artifacts include `LICENSE`, `License-Expression: MPL-2.0`, `License-File` and
+public project URLs. `python/LICENSE` must match the canonical repository license
+byte for byte; changing license terms requires a separate explicit decision.
+The artifact check inspects both formats, rebuilds a wheel outside Git and the
+version environment, then imports an isolated installation:
+
+```bash
+uv run --project python --frozen python python/scripts/check_package.py --version v0.4.3
+```
+
+Use the intended release's calculated version, not the example version, for a
+release candidate. Add `--offline` only when build dependencies are cached.
+Artifacts live in a temporary directory and are removed after inspection. This
+check does not upload to PyPI or retroactively repair older published images.
+See [PyPA package metadata](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/)
+and [Hatch build hooks](https://hatch.pypa.io/latest/plugins/build-hook/reference/).
 
 ## Evidence chain
 

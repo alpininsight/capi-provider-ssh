@@ -63,12 +63,45 @@ create a Kubernetes node.
 | `SSHHost.status.phase` | Available, Claimed, Cleaning or Quarantined |
 | `SSHMachine.status.allocation` | Persisted Machine/host UID and connection binding |
 | `SSHMachine.status.bootstrapOwnership` | Persisted authorization for owned bootstrap/cleanup |
-| `SSHMachine.status.ready` / `initialization.provisioned` | Infrastructure completion under the supported contract |
+| `SSHMachine.status.initialization.provisioned` | Historical successful initialization; cleanup does not erase the bootstrap receipt |
+| `SSHMachine.status.ready` | Legacy current readiness; false throughout deletion, including blocked/failed cleanup |
 | `SSHMachine.status.cleanup.phase` | Running, Succeeded or Failed; only success permits release |
 | `SSHMachine.status.remediation.reboot` | Prepared, Submitted, Unknown, Failed or Succeeded with request/boot evidence |
 
 Statuses and ownership records are controller-owned. Do not patch them as a
 routine recovery method; follow the identity and cleanup gates in [operations](operations.md).
+
+## Lifecycle conditions
+
+`SSHCluster.status.conditions` and `SSHMachine.status.conditions` are lists keyed
+by `type`. Provider updates preserve unrelated conditions. `lastTransitionTime`
+changes when the condition's **status** changes; reason/message updates and a new
+`observedGeneration` retain that transition time. Only conditions evaluated in
+the current reconciliation receive the observed object generation. A historical
+Ready observation is not refreshed merely because the controller reports pause.
+
+| Condition / state | Meaning |
+|---|---|
+| `Paused=True` | Provider or CAPI owner-chain pause, or a referenced owner not yet found; new remote work is held |
+| `Paused=False` | Pause and owner-chain checks passed for this observation |
+| `Paused=Unknown`, `PauseCheckFailed` | API access or owner identity could not be established; reconciliation fails closed |
+| `Ready=False`, `InfrastructureReady=False` during deletion | Deletion is pending, paused, blocked, running or completed; a deleting object is not reported ready |
+| `CleanupSucceeded=False` | `Deleting`, `DeletionPaused`, `CleanupBlocked`, `WaitingForReboot`, `CleanupInProgress` or `CleanupFailed` explains why cleanup is incomplete |
+| `CleanupSucceeded=True` | Durable cleanup completion, or `CleanupNotRequired` when no remote mutation was recorded; SSHCluster cleanup is a no-op |
+| `HostReleasePending` on readiness conditions | Cleanup succeeded but claim release must retry; the success receipt remains and reset is not repeated |
+
+Ordinary pause preserves readiness and successful bootstrap history. Deletion
+sets readiness false even while paused; pause does not undo previously completed
+cleanup. The Running status and readiness/cleanup conditions are persisted before
+SSH reset; the success receipt is persisted before claim release. Cleanup failure
+keeps the claim and finalizer and quarantines the host. A later connection/claim
+release error cannot turn that durable success into permission for another reset.
+`BootstrapExecSucceeded` remains historical evidence during cleanup.
+
+An accepted detached host command can continue after pause. Conditions describe
+the controller's observations, not cancellation of an already accepted command
+or proof of automatic MachineHealthCheck remediation. These reporting additions
+do not advertise the v1beta2 CAPI contract.
 
 ## Runtime settings
 

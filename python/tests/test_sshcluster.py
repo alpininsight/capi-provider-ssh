@@ -99,3 +99,53 @@ class TestSSHClusterReconcile:
         _reconcile(sshcluster_spec, "test", "default", sshcluster_meta_with_owner, patch)
         for condition in patch["status"]["conditions"]:
             assert "lastTransitionTime" in condition
+
+
+def test_pause_and_resume_preserve_transition_times_and_foreign_conditions(sshcluster_spec, sshcluster_meta_with_owner):
+    meta = {**sshcluster_meta_with_owner, "generation": 1}
+    first = kopf.Patch()
+    _reconcile(sshcluster_spec, "test", "default", meta, first)
+    status = dict(first.status)
+    ready = _conditions_by_type(status)["Ready"].copy()
+    foreign = {"type": "ConsumerHealthy", "status": "True", "reason": "Healthy"}
+    status["conditions"].append(foreign)
+    paused = kopf.Patch()
+    meta["generation"] = 2
+    _reconcile({**sshcluster_spec, "paused": True}, "test", "default", meta, paused, status)
+    values = _conditions_by_type(paused.status)
+    assert values["Ready"] == ready
+    assert values["Paused"]["status"] == "True"
+    assert values["Paused"]["observedGeneration"] == 2
+    assert values["ConsumerHealthy"] == foreign
+    resumed = kopf.Patch()
+    _reconcile(sshcluster_spec, "test", "default", meta, resumed, {**status, **paused.status})
+    values = _conditions_by_type(resumed.status)
+    assert values["Paused"]["status"] == "False"
+    assert values["Ready"]["observedGeneration"] == 2
+    assert values["Ready"]["lastTransitionTime"] == ready["lastTransitionTime"]
+    assert values["ConsumerHealthy"] == foreign
+
+
+@pytest.mark.parametrize("paused", [False, True])
+async def test_cluster_delete_reports_cleanup_and_pause(sshcluster_spec, sshcluster_meta_with_owner, paused):
+    from capi_provider_ssh.controllers.sshcluster import sshcluster_delete
+
+    result = kopf.Patch()
+    kwargs = dict(
+        name="test",
+        namespace="default",
+        spec={**sshcluster_spec, "paused": paused},
+        meta={**sshcluster_meta_with_owner, "generation": 7},
+        patch=result,
+    )
+    if paused:
+        with pytest.raises(kopf.TemporaryError, match="paused"):
+            await sshcluster_delete(**kwargs)
+    else:
+        await sshcluster_delete(**kwargs)
+    values = _conditions_by_type(result.status)
+    assert result.status["ready"] is False
+    assert values["Ready"]["status"] == "False"
+    assert values["Paused"]["status"] == ("True" if paused else "False")
+    assert values["CleanupSucceeded"]["status"] == ("False" if paused else "True")
+    assert values["CleanupSucceeded"]["observedGeneration"] == 7

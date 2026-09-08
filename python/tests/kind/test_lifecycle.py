@@ -29,6 +29,20 @@ def test_capi_lifecycle_and_inflight_provider_failover():
         rt.start_workers()
         rt.wait_provisioned(4)
         rt.ready_nodes(4)
+
+        def current_condition_generations():
+            machines = rt.machines()
+            for machine in machines:
+                values = {item["type"]: item for item in machine["status"]["conditions"]}
+                if (
+                    values["Ready"]["status"] != "True"
+                    or values["Ready"].get("observedGeneration") != machine["metadata"]["generation"]
+                    or values["Paused"]["status"] != "False"
+                ):
+                    return False
+            return len(machines) == 4
+
+        eventually("Machine condition generations survive API admission", current_condition_generations)
         before = rt.get(SSH_GROUP, "sshhosts", "worker-0")["spec"]["consumerRef"]["uid"]
         rt.patch(CAPI_GROUP, "machinedeployments", "workers", {"spec": {"replicas": 0}})
         eventually(

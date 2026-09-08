@@ -6,13 +6,17 @@ COPY --from=ghcr.io/astral-sh/uv:latest@sha256:8b940d3a9d65bed080436972241af2e21
 WORKDIR /app
 
 # Copy all source and config for package installation
-COPY pyproject.toml uv.lock* README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE package_version.py hatch_build.py ./
 COPY capi_provider_ssh/ capi_provider_ssh/
 
 # Install only locked production dependencies. The application uses uv rather
 # than pip at runtime, so remove pip and its ensurepip bundle; both contain
 # vendored packages that should not expand the runtime attack surface.
-RUN uv sync --frozen --no-cache --no-dev --no-editable && \
+ARG PROVIDER_VERSION
+RUN if [ -n "$PROVIDER_VERSION" ]; then export PROVIDER_VERSION; else unset PROVIDER_VERSION; fi; \
+    uv sync --frozen --no-cache --no-dev --no-editable && \
+    rm -rf capi_provider_ssh && \
+    rm -f package_version.py hatch_build.py pyproject.toml uv.lock README.md && \
     python -m pip uninstall --yes pip && \
     python -c 'import pathlib, shutil, sysconfig; shutil.rmtree(pathlib.Path(sysconfig.get_path("stdlib")) / "ensurepip")'
 

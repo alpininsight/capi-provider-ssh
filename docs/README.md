@@ -26,6 +26,7 @@ use immutable release/source references when reviewing an older deployment.
 | [Troubleshooting](faq.md) | Symptom, diagnostic evidence and next safe action |
 | [Release process](release-process.md) | Source-to-image-to-GitOps acceptance |
 | [Rollout validation](live-rollout-validation.md) | Canary lifecycle and teardown evidence |
+| [Maintenance and backports](maintenance-policy.md) | Supported release lines, fix selection and independent review |
 | [Security policy](../SECURITY.md) | Reporting channel, privilege boundary and evidence handling |
 
 ## Contributor material and historical records

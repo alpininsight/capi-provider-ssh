@@ -9,6 +9,7 @@ import re
 import kopf
 import kubernetes
 
+from capi_provider_ssh.conditions import condition, merge_conditions, patch_conditions, report_pause
 from capi_provider_ssh.contracts import get_object, is_paused, persist_machine_status, read_known_hosts
 from capi_provider_ssh.inventory import bind_machine, recover_unstarted_claim, release_host, set_host_phase
 from capi_provider_ssh.operations import host_operation, owned_command
@@ -127,45 +128,146 @@ async def reconcile_reboot(spec, status, name, namespace, meta, patch, *, observ
         write_reboot(namespace, name, uid, patch, state)
 
 
+def cleanup_conditions(reason, message, *, succeeded=False):
+    return [
+        condition("Ready", "False", reason, message),
+        condition("InfrastructureReady", "False", reason, message),
+        condition(
+            "CleanupSucceeded",
+            "True" if succeeded else "False",
+            "CleanupCompleted" if succeeded and reason in {"Deleting", "DeletionPaused"} else reason,
+            "Host cleanup completed" if succeeded and reason in {"Deleting", "DeletionPaused"} else message,
+        ),
+    ]
+
+
+def record_cleanup(namespace, name, meta, status, patch, phase, reason, message):
+    """Publish status and the durable receipt together before the next side effect."""
+    updates = cleanup_conditions(reason, message, succeeded=phase == "Succeeded")
+    updates += [item for item in patch.status.get("conditions", []) if item["type"] == "Paused"]
+    # Kopf applies its staged patch after the handler, including on failure.
+    # It must not overwrite a terminal receipt if the API commits it but the
+    # response and subsequent confirmation read are both lost.
+    patch.status.pop("cleanup", None)
+    if phase in {"Succeeded", "Failed"}:
+        patch.status.pop("conditions", None)
+    current = persist_machine_status(
+        namespace,
+        name,
+        meta["uid"],
+        {
+            "ready": False,
+            "cleanup": {"phase": phase},
+            "conditions": merge_conditions([], updates, meta.get("generation")),
+        },
+    )
+    patch.status["ready"] = False
+    patch.status["conditions"] = current["status"]["conditions"]
+
+
+def release_cleaned_host(binding, name, namespace, meta, status, patch):
+    try:
+        release_host(binding, name, namespace, meta["uid"])
+    except Exception as exc:
+        # A release failure must never erase the durable cleanup receipt.
+        patch_conditions(
+            patch,
+            status,
+            meta,
+            [
+                condition("Ready", "False", "HostReleasePending", "Cleanup completed; host claim release is pending"),
+                condition(
+                    "InfrastructureReady",
+                    "False",
+                    "HostReleasePending",
+                    "Cleanup completed; host claim release is pending",
+                ),
+            ],
+        )
+        raise kopf.TemporaryError(
+            "Cleanup completed; retrying host claim release without another reset", delay=30
+        ) from exc
+
+
 async def delete_machine(spec, status, name, namespace, meta, patch):
     """Retain claim and finalizer until cleanup succeeds, including partial bootstrap."""
-    if is_paused(spec, meta, namespace):
+    patch.status["ready"] = False
+    patch_conditions(
+        patch,
+        status,
+        meta,
+        cleanup_conditions(
+            "Deleting",
+            "Deletion is awaiting cleanup checks",
+            succeeded=status.get("cleanup", {}).get("phase") == "Succeeded",
+        ),
+    )
+    if report_pause(patch, status, meta, lambda: is_paused(spec, meta, namespace)):
+        patch_conditions(
+            patch,
+            status,
+            meta,
+            cleanup_conditions(
+                "DeletionPaused",
+                "Deletion is paused by CAPI",
+                succeeded=status.get("cleanup", {}).get("phase") == "Succeeded",
+            ),
+        )
         raise kopf.TemporaryError("Deletion is paused by CAPI", delay=15)
+
+    def blocked(message):
+        patch_conditions(patch, status, meta, cleanup_conditions("CleanupBlocked", message))
+        return kopf.TemporaryError(message, delay=30)
+
     uid = meta["uid"]
     binding = status.get("allocation") or {}
     ownership = status.get("bootstrapOwnership") or {}
     if binding and binding.get("machineUID") != uid:
-        raise kopf.TemporaryError("Cannot delete a different Machine UID's allocation", delay=30)
+        raise blocked("Cannot delete a different Machine UID's allocation")
     if not ownership:
         provisioned = status.get("initialization", {}).get("provisioned") or spec.get("providerID")
         if not provisioned and not binding and (spec.get("hostRef") or spec.get("hostSelector")):
             binding = recover_unstarted_claim(name, namespace, uid)
             if binding:
                 if spec.get("hostRef") and spec["hostRef"] != binding["hostRef"]:
-                    raise kopf.TemporaryError("Unstarted host claim differs from the selected host", delay=30)
+                    raise blocked("Unstarted host claim differs from the selected host")
                 persist_machine_status(namespace, name, uid, {"allocation": binding})
         if provisioned or (spec.get("hostRef") and not binding):
             if binding:
                 set_host_phase(binding, name, namespace, uid, "Quarantined", "LegacyOwnershipUnverified")
-            raise kopf.TemporaryError("Legacy host ownership is unverified; explicit recovery required", delay=30)
-        release_host(binding, name, namespace, uid)
-        return  # Includes dry-run/prerequisite failures: no remote mutation was recorded.
+            raise blocked("Legacy host ownership is unverified; explicit recovery required")
+        record_cleanup(
+            namespace,
+            name,
+            meta,
+            status,
+            patch,
+            "Succeeded",
+            "CleanupNotRequired",
+            "No remote mutation was recorded; host cleanup is not required",
+        )
+        release_cleaned_host(binding, name, namespace, meta, status, patch)
+        return
     if not binding or ownership.get("machineUID") != uid:
-        raise kopf.TemporaryError("Cannot establish bootstrap ownership for cleanup", delay=30)
+        raise blocked("Cannot establish bootstrap ownership for cleanup")
     for field in ("address", "port", "hostUID"):
         if ownership.get(field) != binding.get(field):
-            raise kopf.TemporaryError("Cleanup target differs from bootstrap ownership", delay=30)
+            raise blocked("Cleanup target differs from bootstrap ownership")
     if status.get("cleanup", {}).get("phase") == "Succeeded":
-        release_host(binding, name, namespace, uid)
+        record_cleanup(namespace, name, meta, status, patch, "Succeeded", "CleanupCompleted", "Host cleanup completed")
+        release_cleaned_host(binding, name, namespace, meta, status, patch)
         return
     reboot = status.get("remediation", {}).get("reboot") or {}
     if reboot.get("phase") in {"Prepared", "Submitted", "Unknown"}:
+        patch_conditions(
+            patch, status, meta, cleanup_conditions("WaitingForReboot", "Cleanup waits for a resolved reboot outcome")
+        )
         # Observe pending completion during deletion, without submitting another reboot.
         await reconcile_reboot(spec, status, name, namespace, meta, patch, observe_only=True)
         raise kopf.TemporaryError("Cleanup waits for a resolved reboot outcome", delay=15)
-    patch.status["ready"] = False
     set_host_phase(binding, name, namespace, uid, "Cleaning")
-    persist_machine_status(namespace, name, uid, {"cleanup": {"phase": "Running"}})
+    record_cleanup(namespace, name, meta, status, patch, "Running", "CleanupInProgress", "Host cleanup is in progress")
+    succeeded = False
     try:
         async with host_operation(binding, uid) as operation, await connect(binding, namespace) as conn:
             check_current(namespace, name, uid)
@@ -178,11 +280,34 @@ async def delete_machine(spec, status, name, namespace, meta, patch):
             result = await conn.execute(owned_command(uid, command, cleaned_retry=True))
             if not result.success:
                 raise kopf.TemporaryError(f"Host cleanup failed (exit {result.exit_code})", delay=30)
-            persist_machine_status(namespace, name, uid, {"cleanup": {"phase": "Succeeded"}})
-            patch.status["cleanup"] = {"phase": "Succeeded"}
-            release_host(binding, name, namespace, uid)
+            record_cleanup(
+                namespace, name, meta, status, patch, "Succeeded", "CleanupCompleted", "Host cleanup completed"
+            )
+            succeeded = True
     except Exception as exc:
+        if not succeeded:
+            # The API may have committed Succeeded before its response was lost.
+            # If this read also fails, retain the receipt/claim and retry observation.
+            current = get_object("sshmachines", namespace, name)
+            if current["metadata"].get("uid") != uid:
+                raise kopf.TemporaryError("Machine identity changed during cleanup finalization", delay=15) from exc
+            if current.get("status", {}).get("cleanup", {}).get("phase") == "Succeeded":
+                succeeded = True
+                patch.status["conditions"] = current["status"]["conditions"]
+        if succeeded:
+            raise kopf.TemporaryError(
+                "Cleanup completed; retrying finalization without another reset", delay=30
+            ) from exc
         set_host_phase(binding, name, namespace, uid, "Quarantined", "CleanupFailed")
-        persist_machine_status(namespace, name, uid, {"cleanup": {"phase": "Failed"}})
-        patch.status["cleanup"] = {"phase": "Failed"}
+        record_cleanup(
+            namespace,
+            name,
+            meta,
+            status,
+            patch,
+            "Failed",
+            "CleanupFailed",
+            "Cleanup incomplete; host remains claimed and quarantined",
+        )
         raise kopf.TemporaryError("Cleanup incomplete; host remains claimed and quarantined", delay=30) from exc
+    release_cleaned_host(binding, name, namespace, meta, status, patch)
