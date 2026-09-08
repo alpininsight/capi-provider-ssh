@@ -20,6 +20,12 @@ Those lanes must be selected explicitly and fail if their prerequisites are
 missing. The loopback transport tests remain part of the isolated unit command.
 The full disposable command is `bash scripts/test-kind-lifecycle.sh`.
 
+CI governance tests exercise missing, pending, failed and cancelled checks,
+changed PR heads/bases, conflicting branches, unexpected changes, check origin
+and server rejection. They also validate the required-check names against the
+actual workflows and execute the external-SSH configuration preflight.
+See [CI governance](ci-governance.md) for routing and external target setup.
+
 ## Failure cases that must remain covered
 
 - An API-denied, missing or recreated CAPI owner cannot authorize bootstrap.

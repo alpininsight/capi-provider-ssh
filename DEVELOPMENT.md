@@ -26,8 +26,8 @@ From the repository root:
 
 ```bash
 uv sync --project python --frozen --dev --python 3.13
-uv run --project python ruff check python/capi_provider_ssh python/tests
-uv run --project python ruff format --check python/capi_provider_ssh python/tests
+uv run --project python ruff check python/capi_provider_ssh python/tests python/scripts
+uv run --project python ruff format --check python/capi_provider_ssh python/tests python/scripts
 ```
 
 Run tests from `python/`, so test paths and package resolution match CI:

@@ -13,11 +13,20 @@ the CAPI lifecycle lane. For changed behavior, update the support and operator
 documentation before review. Inspect failed logs; do not replace failures with
 skips or weaken a policy gate to obtain a green status.
 
+The exact check names and active rules are described in
+[CI routing and merge acceptance](ci-governance.md). Release PRs go from
+`develop` to `main` and use a merge commit, preserving the release branch history.
+
 The existing [release workflow](../.github/workflows/release.yml) uses GitVersion
 6.8.x and creates a GitHub release from `main`; the [container workflow](../.github/workflows/container-build-python.yml)
 publishes separately. Release metadata alone does not prove that a compatible
 image or a `clusterctl` provider-components bundle exists. The current repository
 does not ship a complete versioned `clusterctl` installation bundle.
+
+The release and container workflows can finish in either order. An existing Git
+tag on the build's own commit still permits the matching image version tag; a
+tag on a different commit is preserved. Verify the release tag, image version
+tag and immutable source digest together after publication.
 
 ## Evidence chain
 

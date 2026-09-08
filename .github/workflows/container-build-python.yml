@@ -133,14 +133,17 @@ jobs:
         id: version
         env:
           BUILD_REF: ${{ github.ref }}
+          BUILD_SHA: ${{ github.sha }}
           MAJOR_MINOR_PATCH: ${{ needs.version.outputs.major_minor_patch }}
           SEMVER: ${{ needs.version.outputs.semver }}
         run: |
           if [[ "$BUILD_REF" == "refs/heads/main" ]]; then
             TAG="v${MAJOR_MINOR_PATCH}"
-            # Guard: skip semver tag if it already exists (no-bump commits)
-            if git rev-parse "${TAG}" >/dev/null 2>&1; then
-              echo "::warning::Tag ${TAG} already exists — skipping semver tag to preserve immutability"
+            # Release may already have created this commit's Git tag in parallel.
+            # Preserve a previous release; allow either order for this release.
+            TAG_COMMIT="$(git rev-parse --verify "refs/tags/${TAG}^{commit}" 2>/dev/null || true)"
+            if [[ -n "$TAG_COMMIT" && "$TAG_COMMIT" != "$BUILD_SHA" ]]; then
+              echo "::warning::Tag ${TAG} belongs to another commit — preserving its image tag"
               echo "tag=" >> "${GITHUB_OUTPUT}"
             else
               echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
