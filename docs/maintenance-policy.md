@@ -74,8 +74,9 @@ GitHub auto-merge; it cannot supply the independent approval.
 
 The [CODEOWNERS](../.github/CODEOWNERS) file must resolve to actors with write
 access. The previously listed `@alpininsight/sre` team did not resolve in GitHub's
-validation. `@dkdndes` is the verified existing repository administrator; naming
-that account does not add a second maintainer. An administrator-authored PR still
+validation. Peter Rosemann (`@dkdndes`), Alpin Insight Solutions, is the verified
+existing repository administrator; naming that account does not add a second
+maintainer. An administrator-authored PR still
 needs a separately authorized eligible reviewer/code owner. If none is available,
 the PR remains blocked; no emergency self-approval or bot substitution is defined.
 

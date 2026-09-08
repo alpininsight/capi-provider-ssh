@@ -6,7 +6,8 @@ Report security findings privately using
 [**Report a vulnerability**](https://github.com/alpininsight/capi-provider-ssh/security/advisories/new).
 GitHub private vulnerability reporting was enabled and its API setting verified
 on **2026-09-08**. Repository administrators are responsible for this inbox;
-`@dkdndes` is the currently verified administrator. A GitHub account is required.
+Peter Rosemann (`@dkdndes`), Alpin Insight Solutions, is the currently verified
+administrator and code owner. A GitHub account is required.
 Do not open a public issue with exploit details or affected infrastructure data.
 
 Include the affected provider version/source SHA, the impact and a minimal
