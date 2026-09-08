@@ -1,6 +1,6 @@
 # Support and validation matrix
 
-Reviewed: **2026-09-07**. This is the product compatibility reference for the
+Reviewed: **2026-09-08**. This is the product compatibility reference for the
 checked-out source, not a live deployment dashboard. A published architecture,
 passing contract test and certified physical workload are different claims.
 No separate commercial SLA, LTS schedule or hardware certification is declared.
@@ -46,12 +46,18 @@ under review; historical counts are not a substitute.
 
 ## Version evolution
 
-CAPI 1.12 is an upgrade bridge, not a permanent pin. Follow the current upstream
-version policy, keep core/CABPK/KCP aligned and validate each selected transition.
+CAPI 1.12 is an upgrade bridge in upstream maintenance mode, not a permanent pin.
+Follow the current upstream version policy, keep core/CABPK/KCP aligned and
+validate each selected transition.
 Do not jump directly from 1.9 to 1.14. Plan a versioned provider v1beta2 migration;
 upstream removal of legacy v1beta1 compatibility is **tentatively April 2027**.
 An extra `initialization.provisioned` status field alone does not complete that
 migration. Never downgrade blindly across persisted ownership-state changes.
+
+The [contract comparison and migration plan](capi-contract-migration.md) records
+the current implementation, mandatory and optional differences, and acceptance
+steps. The provider may retain its own v1beta1 resource API while implementing
+the v1beta2 CAPI contract; a CRD API rename is not automatically required.
 
 ## Consumer deployment records
 
