@@ -78,6 +78,12 @@ and [GitVersion Manual Deployment](https://gitversion.net/docs/reference/modes/m
 
 ## Evidence chain
 
+The [container delivery guide](../CONTAINER_IMAGES.md) links release notes to
+the registry package and explains version tags, immutable pins and linked
+artifact records. After publication, release notes should identify the exact
+container version and digest. Keep any deployment assertion tied to the
+separate consumer evidence below.
+
 | Gate | Evidence to retain | Acceptance |
 |---|---|---|
 | Reviewed source | PR head, merged commit and exact completed checks | No unresolved required failure or cancellation |
