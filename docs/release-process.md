@@ -28,6 +28,21 @@ tag on the build's own commit still permits the matching image version tag; a
 tag on a different commit is preserved. Verify the release tag, image version
 tag and immutable source digest together after publication.
 
+## Context7 documentation publication
+
+[`context7.json`](../context7.json) selects `main` as the default documentation
+source even though contributions target `develop`. Merge the configuration and
+its referenced documentation through the release PR before refreshing Context7.
+A successful merge into `develop` does not establish the effective index source.
+
+After the refresh completes, verify all three independently: the configuration
+shows `main`, the default entry under Versions shows `main`, and generated
+snippet source URLs point to the intended `main` documentation. Retain the
+repository-file configuration source; a dashboard override would otherwise hide
+future reviewed JSON changes. Historical release tags may be indexed separately.
+See [Context7 configuration](https://context7.com/docs/library-owners) and
+[refresh behavior](https://context7.com/docs/library-updates).
+
 ## Python package identity and license verification
 
 The required version job selects GitVersion `MajorMinorPatch` on `main`, matching
