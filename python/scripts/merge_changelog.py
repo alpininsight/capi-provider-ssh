@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import time
 from dataclasses import dataclass
@@ -65,6 +66,16 @@ class GitHub:
             )
         )
         return [check for page in pages for check in page["check_runs"]]
+
+    def review_state(self, number: int) -> dict:
+        return json.loads(
+            self.command("pr", "view", str(number), "--repo", self.repository, "--json", "headRefOid,reviewDecision")
+        )
+
+    def queue_merge(self, number: int, sha: str) -> None:
+        self.command(
+            "pr", "merge", str(number), "--repo", self.repository, "--auto", "--squash", "--match-head-commit", sha
+        )
 
     def merge(self, number: int, sha: str) -> None:
         # GitHub's active strict rules remain the final gate if the base changes.
@@ -134,7 +145,7 @@ def merge_when_ready(
     interval: float = 15,
     now=time.monotonic,
     sleep=time.sleep,
-) -> None:
+) -> str | None:
     deadline = now() + timeout
     while now() < deadline:
         pr = read_validated_pull_request(github, number, expected_head, sleep=sleep, interval=interval)
@@ -145,6 +156,20 @@ def merge_when_ready(
         if len(files) != 1 or files[0]["filename"] != "CHANGELOG.md" or files[0]["status"] not in {"added", "modified"}:
             raise MergeBlocked("The generated PR must change only CHANGELOG.md")
         passed = checks_ready(github.checks(expected_head), policy, expected_head)
+        if passed:
+            review = github.review_state(number)
+            if review.get("headRefOid") != expected_head:
+                raise MergeBlocked("PR head changed while checking review eligibility")
+            decision = review.get("reviewDecision")
+            if decision == "REVIEW_REQUIRED":
+                github.queue_merge(number, expected_head)
+                print(f"PR #{number}: checks passed; auto-merge queued pending independent CODEOWNER approval")
+                return "review-pending"
+            if decision == "CHANGES_REQUESTED":
+                print(f"PR #{number}: reviewer requested changes; leaving the PR open")
+                return "changes-requested"
+            if decision != "APPROVED":
+                raise MergeBlocked("Required review decision is absent; verify the active review rules")
         if passed and pr.get("mergeable") is True and pr.get("mergeable_state") == "clean":
             # Re-read after collecting evidence. The merge command also guards the head server-side.
             current = read_validated_pull_request(github, number, expected_head, sleep=sleep, interval=interval)
@@ -172,7 +197,10 @@ def main() -> None:
     args = parser.parse_args()
     policy = Policy.load(Path(__file__).resolve().parents[2] / ".github" / "required-checks.json")
     try:
-        merge_when_ready(GitHub(args.repo), args.pr, args.expected_head, policy, timeout=args.timeout)
+        outcome = merge_when_ready(GitHub(args.repo), args.pr, args.expected_head, policy, timeout=args.timeout)
+        if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+            with Path(summary).open("a") as output:
+                output.write(f"\nChangelog PR #{args.pr}: {outcome or 'merged'}.\n")
     except MergeBlocked as exc:
         raise SystemExit(str(exc)) from exc
 

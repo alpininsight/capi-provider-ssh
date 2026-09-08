@@ -13,6 +13,30 @@ PR check names and the GitHub Actions integration ID. The active repository
 requires these checks against an up-to-date branch, with no bypass actors.
 Organization PR, force-push and main-branch merge-method rules still apply.
 
+[Required review parameters](../.github/required-reviews.json) add one independent
+approval, required CODEOWNER review, dismissal of stale approvals, approval of
+the most recent push by a different actor and resolved review threads. There are
+no repository bypass actors. Main still accepts merge commits only. The policy
+applies equally to lifecycle, docs, dependency, bot and release PRs; approval is
+not supplied by the change's author or an automation impersonating a reviewer.
+See [maintenance and reviewer continuity](maintenance-policy.md#independent-review-and-continuity).
+
+Before release or after changing owners/rules, verify the actual GitHub state:
+
+```bash
+gh api repos/alpininsight/capi-provider-ssh/private-vulnerability-reporting
+gh api repos/alpininsight/capi-provider-ssh/codeowners/errors
+gh api repos/alpininsight/capi-provider-ssh/rules/branches/develop
+gh api repos/alpininsight/capi-provider-ssh/rules/branches/main
+```
+
+Expected: private reporting enabled, zero CODEOWNERS errors, all eight strict
+checks and the required review parameters effective on both branches. For a PR,
+also inspect CODEOWNERS on the base branch: a correction in the head does not
+retroactively change which owners approve that correction. If an eligible
+independent owner is unavailable, retain the review block and have the repository
+owner authorize reviewer/team access; do not reduce required approval counts.
+
 The image validation and version jobs are required. Image publication is a
 post-merge gate and intentionally is not a required PR job, because publication
 is skipped for PRs. The scheduled external SSH lane is separate from the PR
@@ -33,11 +57,15 @@ The bot pushes its generated branch with an explicit force-with-lease expectatio
 2. Waits for all required checks from the expected GitHub integration and commit.
    Missing or pending checks wait; unsuccessful, cancelled, skipped and neutral
    required checks cannot authorize a merge.
-3. Rechecks the head, base and merge eligibility after collecting the evidence.
+3. Reads the review decision on the expected head. When approval is still
+   required, queues regular GitHub auto-merge and exits with `review-pending`;
+   requested changes leave the PR open. Human review does not consume a 40-minute
+   polling timeout. Missing review-policy evidence is an error.
+4. Rechecks the head, base and merge eligibility after collecting the evidence.
    A changed head, outdated branch or conflict requires a new reviewed run.
-4. Uses a regular squash merge guarded by `--match-head-commit`. GitHub's strict
-   rules remain the final gate for races; there is no administrator bypass or
-   fallback after a rejected merge.
+5. Uses a regular squash merge guarded by `--match-head-commit`. GitHub's strict
+   rules remain the final gate for races, including queued auto-merge; there is
+   no administrator bypass, automated approval or fallback after rejection.
 
 A concurrent GitHub auto-merge or maintainer merge can briefly leave a blocked
 PR snapshot while its merged status settles. For a closed, outdated or conflicting
@@ -82,4 +110,5 @@ coverage.
 
 Sources: [GitHub runner-group access](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/manage-access),
 [rulesets and required checks](https://docs.github.com/en/rest/repos/rules),
-[merge commit matching](https://cli.github.com/manual/gh_pr_merge).
+[merge commit matching](https://cli.github.com/manual/gh_pr_merge),
+[auto-merge review gates](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/automatically-merging-a-pull-request).

@@ -2,26 +2,36 @@
 
 ## Reporting
 
-Use the repository's **Security → Advisories → Report a vulnerability** option
-when available. Private vulnerability reporting was **disabled when checked on
-2026-09-07**. Until a private channel is available, open a public issue that only
-asks the maintainers for a secure contact; do not include vulnerability details,
-proof-of-concept payloads, credentials or affected infrastructure identifiers.
-No private email address or response-time commitment is implied by this policy.
+Report security findings privately using
+[**Report a vulnerability**](https://github.com/alpininsight/capi-provider-ssh/security/advisories/new).
+GitHub private vulnerability reporting was enabled and its API setting verified
+on **2026-09-08**. Repository administrators are responsible for this inbox;
+`@dkdndes` is the currently verified administrator. A GitHub account is required.
+Do not open a public issue with exploit details or affected infrastructure data.
 
-Maintainers should establish and verify a private intake channel, acknowledge
-reports, assess affected revisions, coordinate remediation and publish an advisory
-after the disclosure decision. Enabling GitHub's private reporting is a separate
-repository-administration action; this document does not enable it.
+Include the affected provider version/source SHA, the impact and a minimal
+sanitized reproduction. Include component versions and relevant condition/reason
+values when useful. Do not send production credentials, private keys, kubeconfigs
+or raw bootstrap Secrets. Discuss any necessary sensitive evidence in the private
+advisory before sharing it.
 
-Follow [GitHub's private reporting guidance](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/report-privately).
+A maintainer acknowledges the report when triaged, assigns an owner, checks
+supported/affected versions, agrees communication and disclosure with the
+reporter, prepares a reviewed fix and coordinates the advisory with the fixed
+release. Contributors are credited only with their consent. There is no guaranteed
+response time, bounty or private email address. If the GitHub form is unavailable,
+a public issue may request restoration of the private channel **without details**;
+it is not a substitute disclosure channel.
+
+See [GitHub's reporting guidance](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/report-privately).
 
 ## Supported security scope
 
-The [support matrix](docs/support-matrix.md) identifies tested source/runtime
-combinations. This project does not currently publish a separate LTS/backport
-schedule, guaranteed patch window or security SLA. A release tag is not a claim
-that every distribution, hardware target or deployment has been assessed.
+The [maintenance and backport policy](docs/maintenance-policy.md) maintains the
+latest stable minor, currently **0.4.x**, on a best-effort basis. Older minors have
+no routine backports. The [support matrix](docs/support-matrix.md) identifies the
+tested source/runtime combinations. No LTS duration, patch deadline or security
+SLA is promised. A release tag does not certify every distribution or host.
 
 The provider is part of the privileged management plane:
 

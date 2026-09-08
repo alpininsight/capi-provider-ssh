@@ -12,6 +12,7 @@ controller pods do not replace a lifecycle test.
 | Loopback SSH and TLS | Real host-key verification, private transfer, API certificate/hostname verification, token rotation, denial and stalled responses | Reachability or identity of a production host |
 | Real API integration in Kind | Structural CRDs, defaults, status subresources, controller reconciliation, readiness and concurrent probe memory behavior | Every Kubernetes version or hardware platform |
 | Full CAPI lifecycle in Kind | CABPK/KCP init/join, providerID association, deletion/reuse and takeover during bootstrap | A production SLA or external-etcd availability |
+| Package artifacts and container metadata | Release-derived version, included license/project URLs, sdist rebuild outside Git and matching installed runtime identity | PyPI publication or repair of historical releases |
 | Explicit external SSH E2E | The selected endpoint's SSH behavior with independently verified trust | General fleet or multi-distribution certification |
 | Consumer GitOps acceptance | Actual image, CRD/RBAC delivery, registry pull, readiness and coordination | Workload lifecycle unless a canary was also run |
 
@@ -24,6 +25,9 @@ CI governance tests exercise missing, pending, failed and cancelled checks,
 changed PR heads/bases, conflicting branches, unexpected changes, check origin
 and server rejection. They also validate the required-check names against the
 actual workflows and execute the external-SSH configuration preflight.
+They cover independent review pending/changes requested, missing review policy,
+changed review head and queued auto-merge without bypass. The artifact gate is
+part of the required version job; see [package identity](release-process.md#python-package-identity-and-license-verification).
 See [CI governance](ci-governance.md) for routing and external target setup.
 
 ## Failure cases that must remain covered
@@ -35,6 +39,12 @@ See [CI governance](ci-governance.md) for routing and external target setup.
   original error or authorize another operation before expiry.
 - Cleanup with mismatched ownership or multiple unstarted claims retains the
   claims. Retrying persisted successful cleanup does not repeat the reset.
+- Pause/unpause preserves prior readiness and foreign conditions; owner API errors
+  report Unknown without authorizing work. Observed generations survive real API
+  admission; reason/generation-only changes preserve transition timestamps.
+- Cleanup Running/Ready=False is durable before reset. Reset failure keeps the
+  claim/quarantine; lost status responses, connection teardown or release failure after success never
+  erases the receipt or repeats reset on retry.
 - An unknown reboot is not replayed; a new request cannot overlap a submitted
   request; deletion waits for reboot observation before cleanup.
 - A failed bootstrap submission/receipt read never becomes speculative replay.

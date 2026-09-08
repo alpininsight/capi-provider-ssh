@@ -214,9 +214,12 @@ async def test_claim_conflict_tries_another_available_host(api, ssh):
 async def test_status_persistence_failure_prevents_remote_execution(api, ssh):
     machine = api.machine()
     api.status_failure = True
-    with pytest.raises(kopf.TemporaryError):
-        await reconcile(api, machine)
+    with pytest.raises(kopf.TemporaryError, match="could not be persisted"):
+        await controller.sshmachine_reconcile(
+            machine["spec"], machine["status"], "machine-a", "test", machine["metadata"], kopf.Patch()
+        )
     assert not ssh.events
+    assert api.current(machine)["status"] == {}
 
 
 async def test_cleanup_keeps_claim_until_success(api, ssh):
@@ -252,8 +255,13 @@ async def test_failed_reset_quarantines_and_retry_recovers(api, ssh):
         await reconcile(api, machine, delete=True)
     assert api.current(h, "sshhosts")["status"]["phase"] == "Quarantined"
     assert api.current(h, "sshhosts")["spec"]["consumerRef"]["uid"] == machine["metadata"]["uid"]
+    failed = conditions(api.current(machine))
+    assert failed["Ready"]["status"] == "False"
+    assert failed["CleanupSucceeded"]["reason"] == "CleanupFailed"
+    assert failed["BootstrapExecSucceeded"]["status"] == "True"
     ssh.reset_code = 0
-    await reconcile(api, machine, delete=True)
+    result = await reconcile(api, machine, delete=True)
+    assert conditions(result)["CleanupSucceeded"]["status"] == "True"
     assert api.current(h, "sshhosts")["status"]["phase"] == "Available"
 
 
@@ -309,6 +317,13 @@ async def test_capi_pause_blocks_all_remote_actions(api, ssh, pause_on, action):
     else:
         await reconcile(api, machine)
     assert not ssh.events
+    result = api.current(machine)
+    assert conditions(result)["Paused"]["status"] == "True"
+    if action == "delete":
+        assert result["status"]["ready"] is False
+        assert conditions(result)["CleanupSucceeded"]["reason"] == "DeletionPaused"
+    elif action == "reboot":
+        assert conditions(result)["Ready"]["status"] == "True"
 
 
 async def test_resume_after_cluster_pause_bootstraps_once(api, ssh):
@@ -512,6 +527,7 @@ async def test_unreadable_capi_owner_chain_blocks_bootstrap(api, ssh, monkeypatc
             await reconcile(api, machine)
     SSHClient.connect.assert_not_awaited()
     assert not api.current(machine)["status"].get("bootstrapOwnership")
+    assert conditions(api.current(machine))["Paused"]["status"] == ("True" if status_code == 404 else "Unknown")
 
 
 async def test_recreated_capi_owner_blocks_bootstrap(api, ssh):
@@ -614,3 +630,149 @@ async def test_invalid_boot_identity_prevents_reboot_submission(api, ssh):
     with pytest.raises(kopf.TemporaryError, match="host boot identity"):
         await reconcile(api, machine)
     assert "reboot" not in ssh.events
+
+
+def conditions(obj):
+    return {item["type"]: item for item in obj["status"]["conditions"]}
+
+
+async def test_cleanup_conditions_are_durable_before_ssh_and_preserve_history(api, ssh):
+    machine = api.machine()
+    raw(api, machine)["metadata"]["generation"] = 1
+    machine = await reconcile(api, machine)
+    bootstrap = conditions(machine)["BootstrapExecSucceeded"]
+    external = {
+        "type": "ConsumerHealthy",
+        "status": "True",
+        "reason": "Healthy",
+        "lastTransitionTime": "2026-09-01T00:00:00Z",
+    }
+    raw(api, machine)["status"]["conditions"].append(external)
+    raw(api, machine)["metadata"]["generation"] = 2
+    original = ssh.execute.side_effect
+
+    async def inspect_status(command, **kwargs):
+        if "kubeadm reset" in command:
+            current = api.current(machine)
+            assert current["status"]["ready"] is False
+            assert current["status"]["cleanup"]["phase"] == "Running"
+            values = conditions(current)
+            assert values["Ready"]["status"] == "False"
+            assert values["InfrastructureReady"]["reason"] == "CleanupInProgress"
+            assert values["CleanupSucceeded"]["status"] == "False"
+            assert values["CleanupSucceeded"]["observedGeneration"] == 2
+            assert values["BootstrapExecSucceeded"] == bootstrap
+            assert values["ConsumerHealthy"] == external
+        return await original(command, **kwargs)
+
+    ssh.execute.side_effect = inspect_status
+    result = await reconcile(api, machine, delete=True)
+    assert conditions(result)["CleanupSucceeded"]["status"] == "True"
+    assert conditions(result)["Ready"]["status"] == "False"
+    assert conditions(result)["ConsumerHealthy"] == external
+
+
+@pytest.mark.parametrize("failure", ["release", "connection-exit", "lost-status-response"])
+async def test_cleanup_receipt_survives_post_reset_failure(api, ssh, monkeypatch, failure):
+    from capi_provider_ssh import lifecycle
+
+    machine = pool_machine(api)
+    allocated = host(api)
+    machine = await reconcile(api, machine)
+    with monkeypatch.context() as patcher:
+        if failure == "release":
+            patcher.setattr(lifecycle, "release_host", Mock(side_effect=kubernetes.client.ApiException(status=503)))
+        elif failure == "connection-exit":
+            ssh.__aexit__.side_effect = ConnectionError("disconnect after reset")
+        else:
+            persist = lifecycle.persist_machine_status
+
+            def lose_success_response(namespace, name, uid, changes):
+                result = persist(namespace, name, uid, changes)
+                if changes.get("cleanup", {}).get("phase") == "Succeeded":
+                    raise kopf.TemporaryError("The API response was lost after commit")
+                return result
+
+            patcher.setattr(lifecycle, "persist_machine_status", lose_success_response)
+        with pytest.raises(kopf.TemporaryError, match="Cleanup completed"):
+            await reconcile(api, machine, delete=True)
+    ssh.__aexit__.side_effect = None
+    current = api.current(machine)
+    assert current["status"]["cleanup"]["phase"] == "Succeeded"
+    assert conditions(current)["CleanupSucceeded"]["status"] == "True"
+    assert api.current(allocated, "sshhosts")["spec"]["consumerRef"]
+    SSHClient.connect.reset_mock()
+    await reconcile(api, machine, delete=True)
+    SSHClient.connect.assert_not_awaited()
+    assert ssh.events.count("reset") == 1
+    assert not api.current(allocated, "sshhosts")["spec"].get("consumerRef")
+
+
+async def test_pause_preserves_ready_observation_and_unpause_advances_generation(api, ssh):
+    machine = api.machine()
+    raw(api, machine)["metadata"]["generation"] = 1
+    machine = await reconcile(api, machine)
+    ready = conditions(machine)["Ready"]
+    raw(api, machine)["spec"]["paused"] = True
+    raw(api, machine)["metadata"]["generation"] = 2
+    result = await reconcile(api, machine)
+    assert result["status"]["ready"] is True
+    assert conditions(result)["Ready"] == ready
+    assert conditions(result)["Paused"]["status"] == "True"
+    assert conditions(result)["Paused"]["observedGeneration"] == 2
+    paused_time = conditions(result)["Paused"]["lastTransitionTime"]
+    result = await reconcile(api, machine)
+    assert conditions(result)["Paused"]["lastTransitionTime"] == paused_time
+    raw(api, machine)["spec"]["paused"] = False
+    raw(api, machine)["metadata"]["generation"] = 3
+    result = await reconcile(api, machine)
+    assert conditions(result)["Paused"]["status"] == "False"
+    assert conditions(result)["Ready"]["observedGeneration"] == 3
+    assert conditions(result)["Ready"]["lastTransitionTime"] == ready["lastTransitionTime"]
+    assert ssh.events.count("bootstrap") == 1
+
+
+async def test_pause_after_cleanup_success_does_not_erase_receipt(api, ssh, monkeypatch):
+    from capi_provider_ssh import lifecycle
+
+    machine = pool_machine(api)
+    host(api)
+    machine = await reconcile(api, machine)
+    with monkeypatch.context() as patcher:
+        patcher.setattr(lifecycle, "release_host", Mock(side_effect=kubernetes.client.ApiException(status=503)))
+        with pytest.raises(kopf.TemporaryError):
+            await reconcile(api, machine, delete=True)
+    completed = conditions(api.current(machine))["CleanupSucceeded"]
+    raw(api, machine)["spec"]["paused"] = True
+    with pytest.raises(kopf.TemporaryError, match="paused"):
+        await reconcile(api, machine, delete=True)
+    result = api.current(machine)
+    assert conditions(result)["Paused"]["status"] == "True"
+    assert conditions(result)["CleanupSucceeded"] == completed
+    assert result["status"]["cleanup"]["phase"] == "Succeeded"
+    raw(api, machine)["spec"]["paused"] = False
+    await reconcile(api, machine, delete=True)
+    assert ssh.events.count("reset") == 1
+
+
+async def test_cleanup_status_denial_prevents_reset_and_release(api, ssh, monkeypatch):
+    machine = pool_machine(api)
+    allocated = host(api)
+    machine = await reconcile(api, machine)
+    original = api.patch_namespaced_custom_object_status
+
+    def deny_running(**kwargs):
+        if (
+            kwargs.get("plural") == "sshmachines"
+            and kwargs["body"]["status"].get("cleanup", {}).get("phase") == "Running"
+        ):
+            raise kubernetes.client.ApiException(status=403)
+        return original(**kwargs)
+
+    monkeypatch.setattr(api, "patch_namespaced_custom_object_status", deny_running)
+    ssh.events.clear()
+    with pytest.raises(kopf.TemporaryError, match="could not be persisted"):
+        await reconcile(api, machine, delete=True)
+    assert "reset" not in ssh.events
+    assert api.current(allocated, "sshhosts")["spec"]["consumerRef"]
+    assert conditions(api.current(machine))["CleanupSucceeded"]["status"] == "False"

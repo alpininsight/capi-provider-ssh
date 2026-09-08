@@ -76,6 +76,8 @@ class GitHub:
         self.merges = []
         self.checked_heads = []
         self.reads = 0
+        self.review = {"headRefOid": HEAD, "reviewDecision": "APPROVED"}
+        self.queued = []
 
     def pull_request(self, number):
         self.reads += 1
@@ -87,6 +89,12 @@ class GitHub:
 
     def files(self, number):
         return self.changed_files
+
+    def review_state(self, number):
+        return self.review
+
+    def queue_merge(self, number, sha):
+        self.queued.append((number, sha))
 
     def merge(self, number, sha):
         self.merges.append((number, sha))
@@ -439,3 +447,43 @@ def test_container_version_tag_is_independent_of_release_workflow_order(tmp_path
     )
     assert result.returncode == 0, result.stderr
     assert output.read_text() == f"tag={expected}\n"
+
+
+@pytest.mark.parametrize("decision", ["REVIEW_REQUIRED", "CHANGES_REQUESTED"])
+def test_human_review_wait_does_not_poll_until_timeout_or_merge(decision):
+    github = GitHub(prs=[pull_request(mergeable_state="blocked")])
+    github.review["reviewDecision"] = decision
+    clock = run(github)
+    assert clock.elapsed == 0
+    assert not github.merges
+    assert github.queued == ([(123, HEAD)] if decision == "REVIEW_REQUIRED" else [])
+
+
+@pytest.mark.parametrize(
+    "review",
+    [
+        {"headRefOid": HEAD, "reviewDecision": None},
+        {"headRefOid": "c" * 40, "reviewDecision": "REVIEW_REQUIRED"},
+    ],
+)
+def test_missing_review_policy_or_changed_review_head_cannot_queue_merge(review):
+    github = GitHub()
+    github.review = review
+    with pytest.raises(guard.MergeBlocked):
+        run(github)
+    assert not github.merges and not github.queued
+
+
+def test_pending_review_cannot_queue_before_required_checks_pass():
+    github = GitHub(checks=[check_runs(conclusion="failure")])
+    github.review["reviewDecision"] = "REVIEW_REQUIRED"
+    with pytest.raises(guard.MergeBlocked):
+        run(github)
+    assert not github.merges and not github.queued
+
+
+def test_auto_merge_command_has_head_guard_and_no_admin_bypass(monkeypatch):
+    calls = []
+    monkeypatch.setattr(guard.GitHub, "command", staticmethod(lambda *args: calls.append(args)))
+    guard.GitHub(REPOSITORY).queue_merge(123, HEAD)
+    assert calls == [("pr", "merge", "123", "--repo", REPOSITORY, "--auto", "--squash", "--match-head-commit", HEAD)]

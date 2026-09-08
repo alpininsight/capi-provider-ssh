@@ -3,7 +3,9 @@
 Reviewed: **2026-09-08**. This is the product compatibility reference for the
 checked-out source, not a live deployment dashboard. A published architecture,
 passing contract test and certified physical workload are different claims.
-No separate commercial SLA, LTS schedule or hardware certification is declared.
+The latest stable minor (currently 0.4.x) is maintained under the
+[maintenance/backport policy](maintenance-policy.md). No separate commercial SLA,
+LTS duration or hardware certification is declared.
 
 ## Tested baseline
 
@@ -32,6 +34,8 @@ under review; historical counts are not a substitute.
 | Host allocation and cleanup | Implemented | UID/resourceVersion claims, persisted binding, quarantine and successful cleanup before release; no automatic adoption |
 | Bootstrap and failover | Implemented | Real CAPI init/joins, durable receipts, provider takeover and no duplicate bootstrap in the Kind lane |
 | CAPI pause | Implemented | Owner-chain pause, missing/recreated owners and API denial prevent new remote work; accepted commands can continue |
+| Lifecycle conditions | Implemented in this source; legacy contract retained | Pause/Unknown reporting, stable status transition times, observed generations and cleanup readiness/receipt status; see [API semantics](api-reference.md#lifecycle-conditions) |
+| Python distribution metadata | Release-derived for versioned builds | Wheel/sdist and isolated rebuild retain version, MPL-2.0 license file and project URLs; unversioned source explicitly identifies itself as such; no PyPI publication claim |
 | Reboot remediation | Implemented, in-band SSH | Completion requires changed boot ID; Unknown is not automatically replayed and blocks unresolved cleanup |
 | Controller HA | Two replicas with mandatory peering, host Leases and remote fencing | Requires eligible placement and a healthy management API/network; no end-to-end recovery SLO |
 | Readiness / liveness | Authenticated API and own current-process heartbeat / local HTTP health | Both active and standby are checked; not proof of every watch/handler |

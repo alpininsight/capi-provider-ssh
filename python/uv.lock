@@ -196,7 +196,6 @@ wheels = [
 
 [[package]]
 name = "capi-provider-ssh"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "asyncssh" },

@@ -31,9 +31,11 @@ implementation starts.
 
 The [documentation and OSS readiness assessment](documentation-readiness.md)
 records existing coverage, concrete gaps and acceptance owners. Before broader
-external adoption, prioritize a verified private security intake and maintenance
-policy, package version/license metadata, complete lifecycle status and approved
-external SSH evidence. These are distinct from rewriting the documentation.
+external adoption, the current source completes lifecycle condition reporting,
+release-derived package/license metadata and the maintenance policy. Private
+reporting and required reviews are configured. A second authorized reviewer and
+approved external SSH evidence remain necessary. Published and deployed versions
+still need their own release/rollout acceptance.
 
 Improve the evaluation walkthrough, release-specific guidance and documentation
 checks alongside those changes. Existing packaging, operating-envelope and
@@ -48,8 +50,8 @@ plugin decision gates remain below; they are not all assigned to the Q4 mileston
 | Hardware extensions | Shared asset identity, capability/version negotiation, authorization and cross-protocol fencing | Provider / platform maintainers |
 | First OOB driver | Protocol emulator tests, lost-response/crash tests and an explicitly selected physical canary | Driver maintainer |
 | Production operating envelope | Fleet-scale/soak measurements, resource sizing, recovery objectives and supported OS baselines | Platform owner |
-| Security operations | Verified private reporting channel and an explicit maintenance/backport policy | Repository maintainers |
-| Distribution metadata | Traceable package/release versions, included license files and useful package project URLs; see the [artifact assessment](documentation-readiness.md#provider-and-project-work-to-prioritize) | Release maintainer |
+| Security operations | Intake enabled and [maintenance/backport policy](maintenance-policy.md) implemented; ensure independent reviewer availability and exercise triage | Repository maintainers |
+| Distribution metadata | Implemented in source: release-derived version, license/project metadata and isolated rebuild checks; verify publication of each accepted version | Release maintainer |
 
 ## Research inputs
 

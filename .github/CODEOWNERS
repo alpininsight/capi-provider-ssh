@@ -1,2 +1,3 @@
-# Require SRE team review for all changes
-* @alpininsight/sre
+# Verified existing administrator; independent review is enforced by repository rules.
+# A second authorized code owner is needed for PRs authored by this owner.
+* @dkdndes
