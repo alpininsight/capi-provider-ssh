@@ -1,5 +1,9 @@
 name: CI Python
 
+# Public-repository exception: the private organization workflow catalog is
+# not callable from this public repository. Keep generic Python behavior
+# aligned with .github-private/python-django-quality-reusable.yml.
+
 on:
   push:
     branches: [develop, main]
@@ -15,68 +19,121 @@ permissions:
   contents: read
 
 jobs:
+  pre-commit:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Run every configured file hook
+        run: uvx --python 3.14 --from pre-commit==4.6.2 pre-commit run --all-files
+
   python-quality:
-    name: Python quality (3.13)
+    name: Python quality
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.13"]
+        python-version: ["3.13", "3.14"]
     defaults:
       run:
         working-directory: python
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev
 
       - name: Ruff lint
-        run: uv run ruff check capi_provider_ssh tests
+        run: uv run ruff check capi_provider_ssh tests scripts
 
       - name: Ruff format check
-        run: uv run ruff format --check capi_provider_ssh tests
+        run: uv run ruff format --check capi_provider_ssh tests scripts
 
       - name: Pytest with coverage
         env:
           TEARDOWN_ARTIFACT_DIR: ${{ github.workspace }}/python/test-artifacts/teardown
-        run: uv run pytest -q --cov=capi_provider_ssh --cov-report=term-missing --cov-report=xml
+        run: uv run pytest -q -m 'not integration and not e2e and not kind' --cov=capi_provider_ssh --cov-report=term-missing --cov-report=xml
 
       - name: Upload Python coverage artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: python-coverage
+          name: python-coverage-${{ matrix.python-version }}
           path: python/coverage.xml
           if-no-files-found: ignore
 
       - name: Upload teardown debug artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: teardown-debug-artifacts
+          name: teardown-debug-artifacts-${{ matrix.python-version }}
           path: python/test-artifacts/teardown
           if-no-files-found: ignore
+
+  kind-lifecycle:
+    name: CAPI lifecycle and provider failover
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.14'
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        with:
+          version: v1.34.11
+      - name: Install verified Kind binary
+        run: |
+          curl --fail --location --retry 3 -o /tmp/kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          echo 'aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  /tmp/kind' | sha256sum --check
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+      - name: Test real CAPI bootstrap, cleanup, reuse and crash recovery
+        run: bash scripts/test-kind-lifecycle.sh
+      - name: Upload lifecycle evidence (no Secrets or kubeconfigs)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kind-lifecycle-evidence
+          path: python/test-artifacts/kind
+          if-no-files-found: error
 
   manifests:
     name: Validate CRDs and manifests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
 
       - name: Install kubeconform
         run: |
@@ -99,7 +156,7 @@ jobs:
 
       - name: Upload rendered manifests
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: rendered-manifests
           path: |

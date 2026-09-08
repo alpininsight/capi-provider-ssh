@@ -27,9 +27,8 @@ spec:
                   properties:
                     spec:
                       type: object
-                      description: >-
-                        Either address (direct SSH) or hostSelector (pool-based
-                        selection from SSHHost inventory) must be provided.
+                      description: Either address (direct SSH) or hostSelector (pool-based selection from SSHHost
+                        inventory) must be provided.
                       properties:
                         address:
                           type: string
@@ -54,9 +53,8 @@ spec:
                               default: value
                         hostSelector:
                           type: object
-                          description: >-
-                            Label selector for SSHHost pool-based selection.
-                            Takes precedence over address if both are set.
+                          description: Label selector for SSHHost pool-based selection. Takes precedence over address
+                            if both are set.
                           properties:
                             matchLabels:
                               type: object
@@ -65,9 +63,8 @@ spec:
                               description: Labels that SSHHost CRs must match.
                         externalEtcd:
                           type: object
-                          description: >-
-                            Optional external etcd wiring. When set, the controller
-                            distributes certs and injects kubeadm apiServer etcd args.
+                          description: Optional external etcd wiring. When set, the controller distributes certs
+                            and injects kubeadm apiServer etcd args.
                           properties:
                             endpoints:
                               type: array
@@ -122,10 +119,20 @@ spec:
                           enum:
                             - ssh
                             - none
-                          description: >-
-                            Strategy for post-bootstrap host readiness validation.
-                            `ssh` runs kubelet readiness checks via SSH (default).
-                            `none` skips host-side readiness checks after bootstrap execution.
+                          description: Strategy for post-bootstrap host readiness validation. `ssh` runs kubelet
+                            readiness checks via SSH (default). `none` skips host-side readiness checks after bootstrap
+                            execution.
+                        sshHostKeyRef:
+                          type: object
+                          required:
+                            - name
+                          description: Verified OpenSSH known_hosts entries or host CA. Required for every SSH connection.
+                          properties:
+                            name:
+                              type: string
+                            key:
+                              type: string
+                              default: known_hosts
   scope: Namespaced
   names:
     plural: sshmachinetemplates

@@ -14,41 +14,71 @@ permissions:
 
 jobs:
   e2e-ssh:
-    name: E2E SSH (strato-vm2)
-    runs-on: self-hosted
+    name: External SSH E2E
+    # Public-repository exception: the notebook runner pool is private-only.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: python
     steps:
+      - name: Verify approved target configuration
+        working-directory: ${{ runner.temp }}
+        env:
+          E2E_SSH_HOST: ${{ vars.E2E_SSH_HOST }}
+          E2E_SSH_PRIVATE_KEY: ${{ secrets.E2E_SSH_PRIVATE_KEY }}
+          E2E_SSH_KNOWN_HOSTS: ${{ secrets.E2E_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for key in E2E_SSH_HOST E2E_SSH_PRIVATE_KEY E2E_SSH_KNOWN_HOSTS; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "::error::Missing approved external SSH test configuration: $key"
+              exit 1
+            fi
+          done
+
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev
 
       - name: Write SSH private key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.E2E_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.E2E_SSH_KNOWN_HOSTS }}
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.E2E_SSH_PRIVATE_KEY }}" > ~/.ssh/e2e_key
-          chmod 600 ~/.ssh/e2e_key
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/capi-e2e-ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/capi-e2e-ssh/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/capi-e2e-ssh/known_hosts"
 
       - name: Run E2E SSH tests
         env:
           E2E_TESTS: "1"
-          E2E_SSH_HOST: "217.154.172.8"
-          E2E_SSH_KEY_PATH: ~/.ssh/e2e_key
+          E2E_SSH_HOST: ${{ vars.E2E_SSH_HOST }}
+          E2E_SSH_USER: ${{ vars.E2E_SSH_USER || 'root' }}
+          E2E_SSH_PORT: ${{ vars.E2E_SSH_PORT || '22' }}
+          E2E_SSH_KEY_PATH: ${{ runner.temp }}/capi-e2e-ssh/key
+          E2E_SSH_KNOWN_HOSTS_PATH: ${{ runner.temp }}/capi-e2e-ssh/known_hosts
         run: uv run pytest tests/e2e/ -v --timeout=120
 
       - name: Cleanup SSH key
         if: always()
-        run: rm -f ~/.ssh/e2e_key
+        working-directory: ${{ runner.temp }}
+        run: rm -f "$RUNNER_TEMP/capi-e2e-ssh/key" "$RUNNER_TEMP/capi-e2e-ssh/known_hosts"

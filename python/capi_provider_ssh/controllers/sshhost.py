@@ -11,6 +11,7 @@ import os
 import kopf
 
 from capi_provider_ssh import API_GROUP, API_VERSION
+from capi_provider_ssh.contracts import is_paused, read_known_hosts
 from capi_provider_ssh.controllers.sshmachine import _now_iso, _read_ssh_key
 from capi_provider_ssh.ssh import SSHClient
 
@@ -23,6 +24,8 @@ SSHHOST_PROBE_TIMEOUT = int(os.environ.get("SSHHOST_PROBE_TIMEOUT", "10"))
 @kopf.timer(API_GROUP, API_VERSION, "sshhosts", interval=SSHHOST_PROBE_INTERVAL, initial_delay=10)
 async def sshhost_probe(spec, status, name, namespace, patch, **_kwargs):
     """Periodically probe SSH connectivity on an SSHHost."""
+    if is_paused(spec, _kwargs.get("meta") or {}, namespace):
+        return
     address = spec.get("address")
     port = spec.get("port", 22)
     user = spec.get("user", "root")
@@ -35,15 +38,18 @@ async def sshhost_probe(spec, status, name, namespace, patch, **_kwargs):
         return
 
     now = _now_iso()
+    patch.status["inUse"] = bool(spec.get("consumerRef"))
+    other_conditions = [c for c in status.get("conditions", []) if c.get("type") != "SSHReachable"]
 
     try:
         ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
+        known_hosts = read_known_hosts(namespace, spec)
     except Exception as e:
         logger.warning("SSHHost %s/%s failed to read SSH key for probe: %s", namespace, name, e)
         patch.status["ready"] = False
         patch.status["lastProbeTime"] = now
         patch.status["lastProbeSuccess"] = False
-        patch.status["conditions"] = [
+        patch.status["conditions"] = other_conditions + [
             {
                 "type": "SSHReachable",
                 "status": "False",
@@ -61,13 +67,14 @@ async def sshhost_probe(spec, status, name, namespace, patch, **_kwargs):
             user=user,
             key=ssh_key,
             timeout=SSHHOST_PROBE_TIMEOUT,
+            known_hosts=known_hosts,
         ) as _conn:
             pass  # Connection test only
 
         patch.status["ready"] = True
         patch.status["lastProbeTime"] = now
         patch.status["lastProbeSuccess"] = True
-        patch.status["conditions"] = [
+        patch.status["conditions"] = other_conditions + [
             {
                 "type": "SSHReachable",
                 "status": "True",
@@ -82,7 +89,7 @@ async def sshhost_probe(spec, status, name, namespace, patch, **_kwargs):
         patch.status["ready"] = False
         patch.status["lastProbeTime"] = now
         patch.status["lastProbeSuccess"] = False
-        patch.status["conditions"] = [
+        patch.status["conditions"] = other_conditions + [
             {
                 "type": "SSHReachable",
                 "status": "False",

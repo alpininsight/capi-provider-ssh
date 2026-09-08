@@ -1,0 +1,13 @@
+{
+  "integration_id": 15368,
+  "checks": [
+    "validate-source-target",
+    "Pre-commit hooks",
+    "Python quality (3.13)",
+    "Python quality (3.14)",
+    "Validate CRDs and manifests",
+    "CAPI lifecycle and provider failover",
+    "Validate and scan Python container",
+    "Validate release version calculation"
+  ]
+}

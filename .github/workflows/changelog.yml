@@ -1,5 +1,10 @@
 ---
 # =============================================================================
+
+# Public-repository exception: GitHub does not allow this public caller to use
+# the private organization workflow catalog. Keep this implementation aligned
+# with .github-private/changelog-reusable.yml until a public reusable backend
+# exists. Access behavior was verified in capi-provider-ssh PR #228.
 # Changelog Workflow - Auto-generate CHANGELOG.md on develop
 # =============================================================================
 
@@ -16,6 +21,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  checks: read
 
 concurrency:
   group: changelog-${{ github.ref }}
@@ -25,17 +31,18 @@ jobs:
   changelog:
     name: Generate CHANGELOG.md
     runs-on: ubuntu-latest
+    timeout-minutes: 50
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # zizmor: ignore[artipacked] v7; authenticated push is required
         with:
           fetch-depth: 0
           fetch-tags: true
           token: ${{ secrets.CHANGELOG_BOT_TOKEN != '' && secrets.CHANGELOG_BOT_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@5bf6ce016fd2e72eefc647cbca1e4213f65955b8 # v2.87.5
         with:
           tool: git-cliff@2.7.0
 
@@ -76,7 +83,8 @@ jobs:
           git checkout -B "$BRANCH"
           git add CHANGELOG.md
           git commit -m "chore(changelog): update CHANGELOG.md"
-          git push --force origin "$BRANCH"
+          REMOTE_HEAD="$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')"
+          git push --force-with-lease="refs/heads/$BRANCH:$REMOTE_HEAD" origin "HEAD:refs/heads/$BRANCH"
 
           PR_NUM="$(gh pr list --head "$BRANCH" --base develop --json number --jq '.[0].number')"
           if [ -n "$PR_NUM" ] && [ "$PR_NUM" != "null" ]; then
@@ -99,28 +107,21 @@ jobs:
             exit 1
           fi
           echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
+          echo "pr_head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Merge changelog PR
+      - name: Wait for checks and merge the reviewed changelog commit
         if: steps.generate.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN }}
+          PR_NUM: ${{ steps.pr.outputs.pr_number }}
+          PR_HEAD: ${{ steps.pr.outputs.pr_head }}
         run: |
-          set -euo pipefail
-          PR_NUM="${{ steps.pr.outputs.pr_number }}"
-          STATE="$(gh pr view "$PR_NUM" --json state --jq '.state')"
-          if [ "$STATE" != "OPEN" ]; then
-            echo "PR #$PR_NUM is $STATE; skipping merge."
-            exit 0
-          fi
-          if gh pr merge "$PR_NUM" --auto --squash --delete-branch; then
-            echo "Auto-merge enabled on PR #$PR_NUM. GitHub will merge when checks pass."
-          else
-            echo "::error::Could not enable auto-merge for PR #$PR_NUM."
-            echo "::error::Check repository auto-merge settings and token permissions."
-            exit 1
-          fi
+          python3 python/scripts/merge_changelog.py \
+            --repo "$GITHUB_REPOSITORY" --pr "$PR_NUM" --expected-head "$PR_HEAD"
 
       - name: Summary
+        env:
+          CHANGED: ${{ steps.generate.outputs.changed }}
         run: |
           echo "### Changelog workflow result" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Changed: ${{ steps.generate.outputs.changed }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Changed: $CHANGED" >> "$GITHUB_STEP_SUMMARY"

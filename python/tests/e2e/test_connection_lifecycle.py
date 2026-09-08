@@ -15,13 +15,14 @@ pytestmark = pytest.mark.e2e
 class TestConnectionLifecycle:
     """Validate connection open/close, reuse, and concurrent connections."""
 
-    async def test_context_manager_closes_connection(self, strato_vm2, ssh_private_key):
+    async def test_context_manager_closes_connection(self, strato_vm2, ssh_private_key, ssh_known_hosts):
         """SSHConnection works as an async context manager and closes cleanly."""
         conn = await SSHClient.connect(
             address=strato_vm2["address"],
             port=strato_vm2["port"],
             user=strato_vm2["user"],
             key=ssh_private_key,
+            known_hosts=ssh_known_hosts,
             timeout=15,
         )
 
@@ -46,7 +47,7 @@ class TestConnectionLifecycle:
             assert result.exit_code == 0
             assert f"cmd-{i}" in result.stdout
 
-    async def test_concurrent_connections(self, strato_vm2, ssh_private_key):
+    async def test_concurrent_connections(self, strato_vm2, ssh_private_key, ssh_known_hosts):
         """Two simultaneous connections to the same host both work."""
 
         async def run_on_connection(tag: str) -> str:
@@ -55,6 +56,7 @@ class TestConnectionLifecycle:
                 port=strato_vm2["port"],
                 user=strato_vm2["user"],
                 key=ssh_private_key,
+                known_hosts=ssh_known_hosts,
                 timeout=15,
             )
             async with conn:

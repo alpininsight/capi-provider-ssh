@@ -7,7 +7,7 @@ license = "MPL-2.0"
 requires-python = ">=3.13"
 dependencies = [
     "kopf>=1.37,<2",
-    "kubernetes>=32,<33",
+    "kubernetes>=32,<37",
     "asyncssh>=2.20,<3",
 ]
 
@@ -24,6 +24,7 @@ asyncio_mode = "auto"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "e2e: marks tests as e2e tests requiring real SSH targets (deselect with '-m \"not e2e\"')",
+    "kind: disposable multi-node CAPI/SSH/kubeadm lifecycle and failover lane",
     "nightly: marks tests for nightly CI only",
 ]
 

@@ -1,189 +1,76 @@
-# Development Setup
+# Development
 
-This guide covers the tools and setup required for local development of capi-provider-ssh.
+Use an isolated branch from current `origin/develop`; preserve existing local
+changes. See [CONTRIBUTING.md](CONTRIBUTING.md) for the PR and DCO requirements.
 
-## Required Tools
+## Tools and isolation
 
-| Tool | Purpose | Version |
-|------|---------|---------|
-| **uv** | Python package manager | 0.9+ |
-| **Python** | Runtime (managed by uv) | 3.13+ |
-| **Rust** | Rust toolchain (rustup) | stable |
-| **nerdctl** | Container builds (via Lima/containerd) | 2.0+ |
-| **kubectl** | Kubernetes CLI | 1.30+ |
-| **clusterctl** | Cluster API CLI | 1.9+ |
-| **kustomize** | Manifest rendering | 5+ |
-| **GitVersion** | Semantic versioning | 6+ |
-| **pre-commit** | Git hooks (via uvx) | - |
+| Lane | Required tooling |
+|---|---|
+| Unit, contract and loopback transport | uv; Python 3.13 or 3.14; permission to bind loopback ports |
+| Formatting and hooks | Locked Ruff; pre-commit 4.6.2 as used by CI |
+| Manifest rendering | kubectl with Kustomize support; CI adds kubeconform |
+| Full CAPI lifecycle | Docker, Kind 0.33.0, kubectl 1.34.11 and uv |
+| Release version validation | GitVersion 6.8.x through the release workflow |
 
-### Optional Tools
+Python dependencies are locked in [python/uv.lock](python/uv.lock).
+The Kind lane pins upstream assets in
+[python/tests/kind/upstream.json](python/tests/kind/upstream.json).
+Install tools through their official distribution channels and verify the
+selected release/checksum. Do not replace these tested pins with a floating
+latest version when reproducing CI.
 
-| Tool | Purpose | Version |
-|------|---------|---------|
-| **kind** | Local management cluster | 0.25+ |
-| **Lima** | macOS VM-based management cluster | 1.0+ |
+## Setup and fast checks
 
-## Installation
-
-### Ubuntu / Debian
+From the repository root:
 
 ```bash
-# uv (Python package manager)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc  # or ~/.zshrc
-
-# Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
-
-# containerd + nerdctl
-# See: https://github.com/containerd/nerdctl
-# On Lima VMs, nerdctl is available via: limactl shell <vm> nerdctl
-
-# kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')/kubectl"
-sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && rm kubectl
-
-# clusterctl
-curl -L https://github.com/kubernetes-sigs/cluster-api/releases/latest/download/clusterctl-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') -o clusterctl
-sudo install -o root -g root -m 0755 clusterctl /usr/local/bin/clusterctl && rm clusterctl
-
-# kustomize
-curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-sudo mv kustomize /usr/local/bin/
-
-# GitVersion
-# Download from: https://github.com/GitTools/GitVersion/releases
-# Or use dotnet tool:
-dotnet tool install --global GitVersion.Tool
+uv sync --project python --frozen --dev --python 3.13
+uv run --project python ruff check python/capi_provider_ssh python/tests python/scripts
+uv run --project python ruff format --check python/capi_provider_ssh python/tests python/scripts
 ```
 
-### macOS
-
-```bash
-# uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
-
-# Lima (containerd + nerdctl included)
-brew install lima
-
-# Kubernetes tools
-brew install kubectl clusterctl kustomize
-
-# GitVersion
-brew install gitversion
-# Or: dotnet tool install --global GitVersion.Tool
-
-# Optional: kind (local management cluster)
-brew install kind
-```
-
-## Shell Setup (zsh)
-
-If using zsh, ensure your PATH includes uv, cargo, and local binaries:
-
-```bash
-# Add to ~/.zshrc if not present
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-```
-
-## Verification
-
-Run these commands to verify your setup:
-
-```bash
-# Required tools
-uv --version          # Should show 0.9+
-rustc --version       # Should show stable
-cargo --version       # Should show matching version
-nerdctl --version     # Should show 2.0+ (via Lima)
-kubectl version --client  # Should show 1.30+
-clusterctl version    # Should show 1.9+
-kustomize version     # Should show 5+
-
-# After uv sync in python/
-uv run python --version  # Should show 3.13+
-```
-
-## Project Setup
-
-### Python Provider
+Run tests from `python/`, so test paths and package resolution match CI:
 
 ```bash
 cd python
-uv sync
-
-# Install pre-commit hooks
-uvx pre-commit install
-uvx pre-commit install --hook-type commit-msg
-
-# Validate configured hooks
-uvx pre-commit validate-config
-
-# Run tests
-uv run pytest
-
-# Lint and format
-uv run ruff check .
-uv run ruff format .
+uv run --frozen pytest -q -m 'not integration and not e2e and not kind'
 ```
 
-### Rust Provider
+The isolated lane does not require a management-cluster kubeconfig or external
+host credentials. SSH/TLS tests bind temporary loopback ports; a sandbox denying
+socket binding is an environment failure, not a passing skipped transport test.
+
+From the repository root, run all configured hooks:
 
 ```bash
-cd rust
-
-# Build
-cargo build
-
-# Run tests
-cargo test
-
-# Lint
-cargo clippy -- -D warnings
-
-# Format
-cargo fmt --check
+uvx --python 3.14 --from pre-commit==4.6.2 pre-commit run --all-files
 ```
 
-### CRDs
+Install local hooks with the same pre-commit version if desired, including the
+`commit-msg` hook. Mypy is a development dependency but is not currently a required
+provider CI job; do not describe a whole-project type check as passed without
+running and inspecting it.
 
-Apply shared CRDs to a management cluster:
+## Lifecycle tests
 
-```bash
-kubectl apply -k shared/crds/
-```
+Run `bash scripts/test-kind-lifecycle.sh` from the repository root. The script
+creates an isolated Kind management cluster and disposable SSH/kubeadm hosts;
+allow approximately 8 GB Docker RAM and 30 minutes. It uses an explicit generated
+kubeconfig and verified upstream assets. Never point this destructive lane at a
+shared or production management cluster.
 
-## Running Tests
+A failed run retains diagnostic state. Follow [testing](docs/testing.md) before
+cleanup; retain Secrets and finalizers until normal CAPI deletion succeeds.
+External SSH E2E is a separate opt-in lane with independently verified host trust.
 
-```bash
-# Python tests
-cd python && uv run pytest
+## Cross-repository work
 
-# Python with coverage
-cd python && uv run pytest --cov
+The provider produces source and images. The consumer GitOps repository owns
+deployment pins, registry admission and platform placement. Follow that
+repository's own instructions and checks, including diff-based CI guards; its
+full test runner may not execute every PR-only policy gate.
 
-# Rust tests
-cd rust && cargo test
-
-# Pre-commit hooks (from repo root)
-uvx pre-commit run --all-files
-```
-
-## Code Quality
-
-```bash
-# Python: lint + format
-cd python
-uv run ruff check .
-uv run ruff format .
-
-# Rust: lint + format
-cd rust
-cargo clippy -- -D warnings
-cargo fmt --check
-```
+The [test portfolio](docs/testing.md) explains evidence boundaries and temporary
+coverage measurement. A private reusable workflow cannot be invoked directly by
+this public repository; existing local CI documents the public-repository exception.

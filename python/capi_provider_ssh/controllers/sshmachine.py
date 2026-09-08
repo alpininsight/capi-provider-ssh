@@ -9,6 +9,7 @@ This is the core controller of the provider. It handles:
 
 import asyncio
 import base64
+import copy
 import datetime
 import logging
 import os
@@ -17,13 +18,19 @@ import re
 import shlex
 import socket
 import time
+import uuid
 
 import kopf
 import kubernetes
 import yaml
 
 from capi_provider_ssh import API_GROUP, API_VERSION
-from capi_provider_ssh.ssh import SSHClient, SSHResult
+from capi_provider_ssh.contracts import is_paused, persist_machine_status, read_known_hosts
+from capi_provider_ssh.inventory import bind_machine, set_host_phase
+from capi_provider_ssh.lifecycle import delete_machine
+from capi_provider_ssh.lifecycle import reconcile_reboot as _reconcile_reboot
+from capi_provider_ssh.operations import durable_bootstrap, host_operation, owned_command
+from capi_provider_ssh.ssh import DEFAULT_COMMAND_TIMEOUT, SSHClient, SSHResult
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +45,7 @@ SSHMACHINE_DISTRIBUTED_LOCK_ENABLED = os.environ.get("SSHMACHINE_DISTRIBUTED_LOC
     "false",
     "no",
 }
-SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS = int(os.environ.get("SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS", "7200"))
+SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS = int(os.environ.get("SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS", "120"))
 SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS = int(
     os.environ.get("SSHMACHINE_DISTRIBUTED_LOCK_RETRY_DELAY_SECONDS", "5"),
 )
@@ -75,7 +82,7 @@ def _build_reconcile_lock_holder() -> str:
     return holder or "unknown"
 
 
-_RECONCILE_LOCK_HOLDER = _build_reconcile_lock_holder()
+_RECONCILE_LOCK_HOLDER = f"{_build_reconcile_lock_holder()}-{uuid.uuid4()}"
 MACHINE_INFRASTRUCTURE_READY_CONDITION = "InfrastructureReady"
 MACHINE_BOOTSTRAP_EXEC_SUCCEEDED_CONDITION = "BootstrapExecSucceeded"
 
@@ -286,6 +293,29 @@ def _normalize_external_etcd(spec: dict) -> dict | None:
     }
 
 
+def _set_kubeadm_args(doc: dict, parent: dict, field: str, desired: dict[str, str]) -> bool:
+    version = doc.get("apiVersion")
+    before = copy.deepcopy(parent.get(field))
+    if version == "kubeadm.k8s.io/v1beta4":
+        args = parent.setdefault(field, [])
+        if not isinstance(args, list) or any(
+            not isinstance(arg, dict) or not isinstance(arg.get("name"), str) or not isinstance(arg.get("value"), str)
+            for arg in args
+        ):
+            raise kopf.PermanentError(f"kubeadm v1beta4 {field} must be a list of name/value strings")
+        # Preserve unrelated repeated arguments; replace all occurrences of owned arguments.
+        parent[field] = [arg for arg in args if arg["name"] not in desired]
+        parent[field].extend({"name": key, "value": value} for key, value in desired.items())
+    elif version == "kubeadm.k8s.io/v1beta3":
+        args = parent.setdefault(field, {})
+        if not isinstance(args, dict):
+            raise kopf.PermanentError(f"kubeadm v1beta3 {field} must be a mapping")
+        args.update(desired)
+    else:
+        raise kopf.PermanentError(f"Unsupported kubeadm configuration API: {version}")
+    return before != parent[field]
+
+
 def _patch_external_etcd_in_kubeadm_yaml(yaml_text: str, external_etcd: dict) -> tuple[str, bool, bool]:
     """Patch kubeadm ClusterConfiguration with external etcd API server arguments."""
     try:
@@ -299,6 +329,12 @@ def _patch_external_etcd_in_kubeadm_yaml(yaml_text: str, external_etcd: dict) ->
     saw_cluster_configuration = False
     changed = False
     for doc in docs:
+        if isinstance(doc, dict) and doc.get("kind") == "JoinConfiguration" and "controlPlane" in doc:
+            if doc.get("apiVersion") not in {"kubeadm.k8s.io/v1beta3", "kubeadm.k8s.io/v1beta4"}:
+                raise kopf.PermanentError("Unsupported kubeadm configuration API for control-plane join")
+            # kubeadm downloads ClusterConfiguration from the existing API on CP join.
+            # Certificates still need staging locally under the same remote operation guard.
+            saw_cluster_configuration = True
         if not isinstance(doc, dict) or doc.get("kind") != "ClusterConfiguration":
             continue
         saw_cluster_configuration = True
@@ -306,20 +342,24 @@ def _patch_external_etcd_in_kubeadm_yaml(yaml_text: str, external_etcd: dict) ->
         api_server = doc.setdefault("apiServer", {})
         if not isinstance(api_server, dict):
             raise kopf.PermanentError("kubeadm ClusterConfiguration.apiServer must be a mapping")
-        extra_args = api_server.setdefault("extraArgs", {})
-        if not isinstance(extra_args, dict):
-            raise kopf.PermanentError("kubeadm ClusterConfiguration.apiServer.extraArgs must be a mapping")
-
         desired_args = {
             "etcd-servers": external_etcd["servers"],
             "etcd-cafile": external_etcd["ca_file"],
             "etcd-certfile": external_etcd["cert_file"],
             "etcd-keyfile": external_etcd["key_file"],
         }
-        for key, value in desired_args.items():
-            if extra_args.get(key) != value:
-                extra_args[key] = value
-                changed = True
+        changed = _set_kubeadm_args(doc, api_server, "extraArgs", desired_args) or changed
+        desired_etcd = {
+            "external": {
+                "endpoints": external_etcd["endpoints"],
+                "caFile": external_etcd["ca_file"],
+                "certFile": external_etcd["cert_file"],
+                "keyFile": external_etcd["key_file"],
+            }
+        }
+        if doc.get("etcd") != desired_etcd:
+            doc["etcd"] = desired_etcd
+            changed = True
 
     if not changed:
         return yaml_text, saw_cluster_configuration, False
@@ -352,15 +392,7 @@ def _patch_provider_id_in_kubeadm_yaml(yaml_text: str, provider_id: str) -> tupl
             raise kopf.PermanentError(
                 f"kubeadm {doc.get('kind')} nodeRegistration must be a mapping",
             )
-        kubelet_extra_args = node_registration.setdefault("kubeletExtraArgs", {})
-        if not isinstance(kubelet_extra_args, dict):
-            raise kopf.PermanentError(
-                f"kubeadm {doc.get('kind')} nodeRegistration.kubeletExtraArgs must be a mapping",
-            )
-
-        if kubelet_extra_args.get("provider-id") != provider_id:
-            kubelet_extra_args["provider-id"] = provider_id
-            changed = True
+        changed = _set_kubeadm_args(doc, node_registration, "kubeletExtraArgs", {"provider-id": provider_id}) or changed
 
     if not changed:
         return yaml_text, saw_node_registration, False
@@ -547,14 +579,16 @@ def _prepare_bootstrap_script(bootstrap_data: str) -> tuple[str, str]:
     raise kopf.PermanentError("bootstrap data format is not supported")
 
 
-def _bootstrap_execution_command() -> str:
+def _bootstrap_execution_command(path: str = "/var/lib/capi-provider-ssh/bootstrap.sh") -> str:
     """Build bootstrap command with host-side sentinel guard."""
+    script_path = shlex.quote(path)
     sentinel_path = shlex.quote(BOOTSTRAP_SUCCESS_SENTINEL_PATH)
     sentinel_dir = shlex.quote(posixpath.dirname(BOOTSTRAP_SUCCESS_SENTINEL_PATH))
     sentinel_hit = shlex.quote(BOOTSTRAP_SENTINEL_HIT_OUTPUT)
     return (
+        f"trap 'rm -f -- {script_path}' EXIT; "
         f"if [ -f {sentinel_path} ]; then printf '%s\\n' {sentinel_hit}; exit 0; fi && "
-        "chmod +x /tmp/bootstrap.sh && /tmp/bootstrap.sh && "
+        f"chmod 0700 {script_path} && {script_path} && "
         f"install -d -m 0755 {sentinel_dir} && touch {sentinel_path}"
     )
 
@@ -847,45 +881,22 @@ def _inject_provider_id_into_bootstrap_data(bootstrap_data: str, provider_id: st
     return _inject_provider_id_into_shell_bootstrap_data(bootstrap_data, provider_id)
 
 
-async def _upload_external_etcd_certs(conn, namespace: str, external_etcd: dict) -> None:
-    """Upload external etcd cert material to deterministic paths on the target host."""
-    ca_value = await _read_secret_value(namespace, *external_etcd["ca_ref"])
-    cert_value = await _read_secret_value(namespace, *external_etcd["cert_ref"])
-    key_value = await _read_secret_value(namespace, *external_etcd["key_ref"])
-
-    dirs = sorted(
-        {
-            posixpath.dirname(external_etcd["ca_file"]),
-            posixpath.dirname(external_etcd["cert_file"]),
-            posixpath.dirname(external_etcd["key_file"]),
-        },
-    )
-    for directory in dirs:
-        result = await conn.execute(f"install -d -m 0700 {shlex.quote(directory)}")
-        if not result.success:
-            raise kopf.TemporaryError(f"failed to create external etcd directory {directory}", delay=30)
-
-    await conn.upload(ca_value, external_etcd["ca_file"])
-    await conn.upload(cert_value, external_etcd["cert_file"])
-    await conn.upload(key_value, external_etcd["key_file"])
-
-    chmod_cmd = (
-        f"chmod 0644 {shlex.quote(external_etcd['ca_file'])} {shlex.quote(external_etcd['cert_file'])} "
-        f"&& chmod 0600 {shlex.quote(external_etcd['key_file'])}"
-    )
-    chmod_result = await conn.execute(chmod_cmd)
-    if not chmod_result.success:
-        raise kopf.TemporaryError("failed to set external etcd certificate file permissions", delay=30)
-
-
-def _set_reboot_status(patch, requested_at: str, success: bool, message: str) -> None:
-    patch.status.setdefault("remediation", {})
-    patch.status["remediation"]["reboot"] = {
-        "lastRequestedAt": requested_at,
-        "lastCompletedAt": _now_iso(),
-        "success": success,
-        "message": message,
-    }
+async def _external_etcd_files_script(namespace: str, external_etcd: dict) -> str:
+    """Stage certificates inside the private script; install only under remote fencing."""
+    commands = []
+    for kind, mode in (("ca", "0644"), ("cert", "0644"), ("key", "0600")):
+        value = await _read_secret_value(namespace, *external_etcd[f"{kind}_ref"])
+        encoded = base64.b64encode(value.encode()).decode()
+        path = shlex.quote(external_etcd[f"{kind}_file"])
+        directory = shlex.quote(posixpath.dirname(external_etcd[f"{kind}_file"]))
+        commands.extend(
+            [
+                f"install -d -m 0700 {directory}",
+                f"umask 077; printf '%s' {shlex.quote(encoded)} | base64 -d > {path}",
+                f"chmod {mode} {path}",
+            ]
+        )
+    return "\n".join(commands) + "\n"
 
 
 def _is_already_provisioned(status: dict, expected_provider_id: str) -> bool:
@@ -1186,327 +1197,18 @@ def _read_current_sshmachine(namespace: str, name: str) -> dict | None:
         raise
 
 
-def _machine_consumer_ref(name: str, namespace: str) -> dict:
-    """Build consumerRef payload for an SSHMachine."""
-    return {
-        "kind": "SSHMachine",
-        "name": name,
-        "namespace": namespace,
-    }
-
-
-def _is_same_consumer(consumer_ref: dict | None, name: str, namespace: str) -> bool:
-    """Return True when a consumerRef points to this SSHMachine."""
-    if not consumer_ref:
-        return False
-    return (
-        consumer_ref.get("kind", "SSHMachine") == "SSHMachine"
-        and consumer_ref.get("name") == name
-        and (consumer_ref.get("namespace", namespace) == namespace)
-    )
-
-
-def _patch_host_consumer(
-    api: kubernetes.client.CustomObjectsApi,
-    *,
-    namespace: str,
-    host_name: str,
-    consumer_ref: dict,
-    in_use: bool,
-    resource_version: str | None,
-) -> bool:
-    """Patch SSHHost consumerRef with optimistic concurrency (resourceVersion).
-
-    Clearing with `{}` is a no-op under JSON merge patch semantics for nested
-    objects. Use `null` to remove spec.consumerRef keys definitively.
-    """
-    consumer_ref_patch: dict | None = consumer_ref if consumer_ref else None
-    body: dict = {
-        "spec": {
-            "consumerRef": consumer_ref_patch,
-        },
-        "status": {
-            "inUse": in_use,
-        },
-    }
-    if resource_version:
-        body["metadata"] = {"resourceVersion": resource_version}
-
-    try:
-        api.patch_namespaced_custom_object(
-            group=API_GROUP,
-            version=API_VERSION,
-            namespace=namespace,
-            plural="sshhosts",
-            name=host_name,
-            body=body,
-        )
-    except kubernetes.client.ApiException as e:
-        if e.status in {404, 409}:
-            return False
-        raise
-    return True
-
-
-def _apply_host_to_machine_patch(host_spec: dict, host_name: str, host_namespace: str, patch) -> None:
-    """Copy claimed host fields into SSHMachine spec patch."""
-    address = host_spec.get("address")
-    if not address:
-        raise kopf.PermanentError(f"SSHHost {host_namespace}/{host_name} is missing spec.address")
-    patch.spec["address"] = address
-    patch.spec["user"] = host_spec.get("user", "root")
-    patch.spec["sshKeyRef"] = host_spec.get("sshKeyRef", {})
-    patch.spec["hostRef"] = f"{host_namespace}/{host_name}"
-
-
-def _is_consumer_orphaned(
-    api: kubernetes.client.CustomObjectsApi,
-    *,
-    host_namespace: str,
-    consumer_ref: dict,
-) -> bool:
-    """Return True when an SSHHost consumerRef points to a missing SSHMachine."""
-    consumer_name = consumer_ref.get("name")
-    if not consumer_name:
-        return False
-    if consumer_ref.get("kind", "SSHMachine") != "SSHMachine":
-        return False
-
-    consumer_ns = consumer_ref.get("namespace", host_namespace)
-    try:
-        api.get_namespaced_custom_object(
-            group=API_GROUP,
-            version=API_VERSION,
-            namespace=consumer_ns,
-            plural="sshmachines",
-            name=consumer_name,
-        )
-        return False
-    except kubernetes.client.ApiException as e:
-        if e.status == 404:
-            return True
-        raise
-
-
-async def _choose_host(spec: dict, name: str, namespace: str, patch) -> bool:
-    """Select and claim an SSHHost from the pool based on hostSelector.
-
-    Returns True if a host was claimed (or address was already set).
-    Returns False if no host is available (caller should requeue).
-    """
-    host_selector = spec.get("hostSelector")
-    if not host_selector:
-        # Direct mode: address is required when hostSelector is not used.
-        if spec.get("address"):
-            return True
-        message = "Either address or hostSelector must be provided"
-        reason = "InvalidConfiguration"
-        patch.status["failureReason"] = "InvalidConfiguration"
-        patch.status["failureMessage"] = message
-        patch.status["ready"] = False
-        patch.status["initialization"] = {"provisioned": False}
-        patch.status["conditions"] = _machine_lifecycle_conditions(
-            ready=False,
-            ready_reason=reason,
-            ready_message=message,
-            infrastructure_ready=False,
-            infrastructure_reason=reason,
-            infrastructure_message=message,
-            bootstrap_succeeded=False,
-            bootstrap_reason="BootstrapNotStarted",
-            bootstrap_message="Bootstrap has not started because machine configuration is invalid",
-        )
-        raise kopf.PermanentError(message)
-
-    match_labels = host_selector.get("matchLabels", {})
-    if not match_labels:
-        raise kopf.PermanentError("hostSelector.matchLabels must not be empty")
-
-    # List all SSHHost CRs in the namespace
-    api = kubernetes.client.CustomObjectsApi()
-    hosts = api.list_namespaced_custom_object(
-        group=API_GROUP,
-        version=API_VERSION,
-        namespace=namespace,
-        plural="sshhosts",
-    )
-    machine_consumer_ref = _machine_consumer_ref(name, namespace)
-
-    # Sort hosts: ready first, unknown next, explicitly failed last.
-    def _host_sort_key(h):
-        ready = h.get("status", {}).get("ready")
-        if ready is True:
-            readiness_rank = 0
-        elif ready is False:
-            readiness_rank = 2
-        else:
-            readiness_rank = 1
-        return (readiness_rank, h.get("metadata", {}).get("name", ""))
-
-    # Filter by matchLabels and find unclaimed hosts
-    for host in sorted(hosts.get("items", []), key=_host_sort_key):
-        host_meta = host.get("metadata", {})
-        host_name = host_meta.get("name")
-        if not host_name:
-            continue
-
-        host_labels = host_meta.get("labels", {})
-        # Check all selector labels match
-        if not all(host_labels.get(k) == v for k, v in match_labels.items()):
-            continue
-
-        host_spec = host.get("spec", {})
-        consumer_ref = host_spec.get("consumerRef", {})
-
-        # Already claimed by this machine -> idempotent reuse.
-        if _is_same_consumer(consumer_ref, name, namespace):
-            _apply_host_to_machine_patch(host_spec, host_name, namespace, patch)
-            logger.info("SSHMachine %s/%s reusing SSHHost %s", namespace, name, host_name)
-            return True
-
-        # Claimed by another machine: reclaim stale orphaned claims only.
-        if consumer_ref and consumer_ref.get("name"):
-            if not _is_consumer_orphaned(api, host_namespace=namespace, consumer_ref=consumer_ref):
-                continue
-
-            logger.warning(
-                "SSHMachine %s/%s reclaiming stale SSHHost claim on %s from %s/%s",
-                namespace,
-                name,
-                host_name,
-                consumer_ref.get("namespace", namespace),
-                consumer_ref.get("name"),
-            )
-            cleared = _patch_host_consumer(
-                api,
-                namespace=namespace,
-                host_name=host_name,
-                consumer_ref={},
-                in_use=False,
-                resource_version=host_meta.get("resourceVersion"),
-            )
-            if not cleared:
-                continue
-
-            try:
-                host = api.get_namespaced_custom_object(
-                    group=API_GROUP,
-                    version=API_VERSION,
-                    namespace=namespace,
-                    plural="sshhosts",
-                    name=host_name,
-                )
-            except kubernetes.client.ApiException as e:
-                if e.status == 404:
-                    continue
-                raise
-
-            host_meta = host.get("metadata", {})
-            host_spec = host.get("spec", {})
-            consumer_ref = host_spec.get("consumerRef", {})
-            if consumer_ref and consumer_ref.get("name"):
-                continue
-
-        # Claim this host with optimistic concurrency.
-        claimed = _patch_host_consumer(
-            api,
-            namespace=namespace,
-            host_name=host_name,
-            consumer_ref=machine_consumer_ref,
-            in_use=True,
-            resource_version=host_meta.get("resourceVersion"),
-        )
-        if not claimed:
-            continue
-
-        _apply_host_to_machine_patch(host_spec, host_name, namespace, patch)
-
-        logger.info(
-            "SSHMachine %s/%s claimed SSHHost %s (address=%s)",
-            namespace,
-            name,
-            host_name,
-            host_spec.get("address"),
-        )
-        return True
-
-    # No available host found
-    message = f"No unclaimed SSHHost matching {match_labels}"
-    reason = "HostNotAvailable"
-    patch.status["initialization"] = {"provisioned": False}
-    patch.status["ready"] = False
-    patch.status["conditions"] = _machine_lifecycle_conditions(
-        ready=False,
-        ready_reason=reason,
-        ready_message=message,
-        infrastructure_ready=False,
-        infrastructure_reason=reason,
-        infrastructure_message=message,
-        bootstrap_succeeded=False,
-        bootstrap_reason="BootstrapNotStarted",
-        bootstrap_message="Bootstrap has not started because no SSHHost is available",
-    )
-    raise kopf.TemporaryError(f"No available SSHHost matching {match_labels}", delay=30)
-
-
-async def _release_host(spec: dict, name: str, namespace: str) -> None:
-    """Release the claimed SSHHost by clearing its consumerRef."""
-    host_ref = spec.get("hostRef")
-    if not host_ref:
-        return
-
-    try:
-        host_ns, host_name = host_ref.split("/", 1)
-    except ValueError:
-        logger.warning("SSHMachine %s/%s has malformed hostRef: %s", namespace, name, host_ref)
-        return
-
-    api = kubernetes.client.CustomObjectsApi()
-    for _attempt in range(3):
-        try:
-            host = api.get_namespaced_custom_object(
-                group=API_GROUP,
-                version=API_VERSION,
-                namespace=host_ns,
-                plural="sshhosts",
-                name=host_name,
-            )
-        except kubernetes.client.ApiException as e:
-            if e.status == 404:
-                logger.warning("SSHHost %s not found during release (already deleted?)", host_ref)
-                return
-            logger.warning("Failed reading SSHHost %s for release: %s", host_ref, e)
-            return
-
-        current_consumer = host.get("spec", {}).get("consumerRef", {})
-        if (
-            current_consumer
-            and current_consumer.get("name")
-            and not _is_same_consumer(current_consumer, name, namespace)
-        ):
-            logger.warning(
-                "SSHMachine %s/%s skipped releasing SSHHost %s (owned by %s/%s)",
-                namespace,
-                name,
-                host_ref,
-                current_consumer.get("namespace", host_ns),
-                current_consumer.get("name"),
-            )
-            return
-
-        cleared = _patch_host_consumer(
-            api,
-            namespace=host_ns,
-            host_name=host_name,
-            consumer_ref={},
-            in_use=False,
-            resource_version=host.get("metadata", {}).get("resourceVersion"),
-        )
-        if cleared:
-            logger.info("SSHMachine %s/%s released SSHHost %s", namespace, name, host_ref)
-            return
-
-    logger.warning("SSHMachine %s/%s failed to release SSHHost %s after retries", namespace, name, host_ref)
+async def _ensure_bootstrap_ownership(conn, binding, uid, namespace, name, status, patch):
+    ownership = status.get("bootstrapOwnership") or {"machineUID": uid, "startedAt": _now_iso(), **binding}
+    if ownership.get("machineUID") != uid:
+        raise kopf.PermanentError("Bootstrap ownership belongs to a different Machine UID")
+    persist_machine_status(namespace, name, uid, {"bootstrapOwnership": ownership})
+    patch.status["bootstrapOwnership"] = ownership
+    claim_result = await conn.execute(owned_command(uid, "true", claim=True))
+    if not claim_result.success:
+        if claim_result.exit_code == 78:
+            set_host_phase(binding, name, namespace, uid, "Quarantined", "RemoteOwnershipMismatch")
+            raise kopf.PermanentError("Remote host identity is not owned by this Machine UID")
+        raise kopf.TemporaryError("Remote host operation is still busy", delay=15)
 
 
 async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch, **_kwargs):
@@ -1514,7 +1216,7 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     logger.info("SSHMachine %s/%s reconciling", namespace, name)
 
     # Check pause
-    if spec.get("paused"):
+    if is_paused(spec, meta, namespace) or meta.get("deletionTimestamp"):
         logger.info("SSHMachine %s/%s is paused, skipping", namespace, name)
         return
 
@@ -1564,15 +1266,16 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
         )
         raise
 
-    # Host selection: claim an SSHHost if using hostSelector mode
-    await _choose_host(spec, name, namespace, patch)
+    # Persist the UID-bound target before any bootstrap side effects.
+    uid = meta.get("uid")
+    binding = bind_machine(spec, status, name, namespace, uid, patch)
 
     # At this point, address must be set (either direct or from host claim)
     address = patch.spec.get("address", spec.get("address"))
     if not address:
         raise kopf.PermanentError("address is not set after host selection")
 
-    port = spec.get("port", 22)
+    port = binding["port"]
     user = patch.spec.get("user", spec.get("user", "root"))
     provider_id = f"ssh://{address}"
 
@@ -1742,6 +1445,7 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
 
     try:
         ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
+        known_hosts = read_known_hosts(namespace, binding)
     except kopf.PermanentError:
         raise
     except Exception as e:
@@ -1767,7 +1471,13 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     # Dry-run mode: validate prerequisites without executing the bootstrap script.
     if spec.get("dryRun"):
         try:
-            async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
+            async with await SSHClient.connect(
+                address=address,
+                port=port,
+                user=user,
+                key=ssh_key,
+                known_hosts=known_hosts,
+            ) as conn:
                 pass  # Connection test only
         except Exception as e:
             reason = "DryRunSSHFailed"
@@ -1818,56 +1528,41 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
 
     # SSH bootstrap
     try:
-        async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
+        async with (
+            host_operation(binding, uid) as operation,
+            await SSHClient.connect(
+                address=address, port=port, user=user, key=ssh_key, known_hosts=known_hosts
+            ) as conn,
+        ):
+            latest = _read_current_sshmachine(namespace, name)
+            if not latest or latest["metadata"].get("uid") != uid:
+                raise kopf.TemporaryError("Machine identity changed before bootstrap", delay=15)
+            if is_paused(latest["spec"], latest["metadata"], namespace) or latest["metadata"].get("deletionTimestamp"):
+                return
+            await operation.check()
+            await _ensure_bootstrap_ownership(conn, binding, uid, namespace, name, status, patch)
             if external_etcd:
-                try:
-                    await _upload_external_etcd_certs(conn, namespace, external_etcd)
-                except kopf.PermanentError as e:
-                    reason = "ExternalEtcdCertError"
-                    message = str(e)
-                    patch.status["failureReason"] = reason
-                    patch.status["failureMessage"] = message
-                    patch.status["ready"] = False
-                    patch.status["initialization"] = {"provisioned": False}
-                    patch.status["conditions"] = _machine_lifecycle_conditions(
-                        ready=False,
-                        ready_reason=reason,
-                        ready_message=message,
-                        infrastructure_ready=False,
-                        infrastructure_reason=reason,
-                        infrastructure_message=message,
-                        bootstrap_succeeded=False,
-                        bootstrap_reason="BootstrapNotStarted",
-                        bootstrap_message="Bootstrap has not started due to external etcd certificate error",
-                    )
-                    raise
-                except kopf.TemporaryError as e:
-                    reason = "ExternalEtcdCertUploadError"
-                    message = str(e)
-                    patch.status["failureReason"] = reason
-                    patch.status["failureMessage"] = message
-                    patch.status["ready"] = False
-                    patch.status["initialization"] = {"provisioned": False}
-                    patch.status["conditions"] = _machine_lifecycle_conditions(
-                        ready=False,
-                        ready_reason=reason,
-                        ready_message=message,
-                        infrastructure_ready=False,
-                        infrastructure_reason=reason,
-                        infrastructure_message=message,
-                        bootstrap_succeeded=False,
-                        bootstrap_reason="BootstrapNotStarted",
-                        bootstrap_message="Bootstrap has not started due to external etcd certificate upload error",
-                    )
-                    raise
+                certificate_script = await _external_etcd_files_script(namespace, external_etcd)
+                bootstrap_script = "#!/bin/bash\nset -euo pipefail\n" + certificate_script + bootstrap_script
 
-            # Upload bootstrap script
-            await conn.upload(bootstrap_script, "/tmp/bootstrap.sh")  # noqa: S108
-
-            # Execute bootstrap
-            result = await conn.execute(_bootstrap_execution_command())  # noqa: S108
+            # A takeover must not truncate the previous controller's running script.
+            # Only this attempt writes this path; execution and certificate installation
+            # happen together under the remote UID guard and flock.
+            bootstrap_path = f"/var/lib/capi-provider-ssh/bootstrap-{uuid.uuid4()}.sh"
+            await operation.check()
+            await conn.upload(bootstrap_script, bootstrap_path)
+            await operation.check()
+            latest = _read_current_sshmachine(namespace, name)
+            if not latest or latest["metadata"].get("uid") != uid:
+                raise kopf.TemporaryError("Machine identity changed before bootstrap execution", delay=15)
+            if is_paused(latest["spec"], latest["metadata"], namespace) or latest["metadata"].get("deletionTimestamp"):
+                return
+            result = await durable_bootstrap(
+                conn, uid, bootstrap_path, _bootstrap_execution_command(bootstrap_path), timeout=DEFAULT_COMMAND_TIMEOUT
+            )
 
             if not result.success:
+                set_host_phase(binding, name, namespace, uid, "Quarantined", "BootstrapFailed")
                 failure_reason, failure_phase, failure_message, stderr_excerpt = _classify_bootstrap_failure(
                     result,
                     bootstrap_script,
@@ -2080,6 +1775,9 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
                         name,
                     )
 
+                if _kwargs.get("action") == "delete":
+                    await delete_machine(spec, status, name, namespace, meta, patch)
+                    return
                 await _sshmachine_reconcile_impl(
                     spec=spec,
                     status=status,
@@ -2088,6 +1786,8 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
                     meta=meta,
                     patch=patch,
                 )
+                if not meta.get("deletionTimestamp"):
+                    await _reconcile_reboot(spec, status, name, namespace, meta, patch)
             finally:
                 _release_distributed_lock_with_logging(namespace, name, "reconcile")
     finally:
@@ -2114,131 +1814,18 @@ async def sshmachine_reconcile_timer(spec, status, name, namespace, meta, patch,
 
 
 @kopf.on.delete(API_GROUP, API_VERSION, "sshmachines")
-async def sshmachine_delete(spec, name, namespace, patch=None, **_kwargs):
-    """Handle SSHMachine deletion -- cleanup via SSH (kubeadm reset) and release host."""
-    logger.info("SSHMachine %s/%s deleting", namespace, name)
-    if patch is not None:
-        patch.status["ready"] = False
-        patch.status["initialization"] = {"provisioned": False}
-        patch.status["conditions"] = _machine_lifecycle_conditions(
-            ready=False,
-            ready_reason="Deleting",
-            ready_message="Infrastructure machine is deleting",
-            infrastructure_ready=False,
-            infrastructure_reason="Deleting",
-            infrastructure_message="Infrastructure machine is deleting",
-            bootstrap_succeeded=False,
-            bootstrap_reason="Deleting",
-            bootstrap_message="Bootstrap lifecycle is terminating due to machine deletion",
-        )
-
-    lock = _get_reconcile_lock(namespace, name)
-    if lock.locked():
-        logger.info("SSHMachine %s/%s waiting for in-flight reconcile before delete cleanup", namespace, name)
-
-    try:
-        async with lock:
-            _acquire_distributed_lock_or_requeue(namespace, name, "delete")
-            try:
-                # Release the claimed SSHHost back to the pool
-                await _release_host(spec, name, namespace)
-
-                address = spec.get("address")
-                port = spec.get("port", 22)
-                user = spec.get("user", "root")
-                ssh_key_ref = spec.get("sshKeyRef", {})
-                secret_name = ssh_key_ref.get("name")
-                secret_key = ssh_key_ref.get("key", "value")
-
-                if not address or not secret_name:
-                    logger.warning("SSHMachine %s/%s missing address or sshKeyRef, skipping cleanup", namespace, name)
-                    return
-
-                try:
-                    ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
-                except Exception as e:
-                    logger.warning("SSHMachine %s/%s failed to read SSH key for cleanup: %s", namespace, name, e)
-                    # Don't block finalizer removal if we can't read the key
-                    return
-
-                try:
-                    async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
-                        cleanup_cmd = (
-                            "kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/kubelet "
-                            f"{shlex.quote(BOOTSTRAP_SUCCESS_SENTINEL_PATH)}"
-                        )
-                        result = await conn.execute(cleanup_cmd)
-                        if result.success:
-                            logger.info("SSHMachine %s/%s cleanup succeeded on %s", namespace, name, address)
-                        else:
-                            logger.warning(
-                                "SSHMachine %s/%s cleanup failed on %s (exit=%d), allowing finalizer removal",
-                                namespace,
-                                name,
-                                address,
-                                result.exit_code,
-                            )
-                except Exception as e:
-                    # Cleanup failures must not block finalizer removal
-                    logger.warning("SSHMachine %s/%s SSH cleanup error on %s: %s", namespace, name, address, e)
-            finally:
-                _release_distributed_lock_with_logging(namespace, name, "delete")
-    finally:
-        _cleanup_reconcile_lock(namespace, name, lock)
+async def sshmachine_delete(spec, name, namespace, patch=None, meta=None, status=None, **_kwargs):
+    """Delete through the same UID-checked and serialized entrypoint as bootstrap."""
+    await sshmachine_reconcile(
+        spec, status or {}, name, namespace, meta or {}, patch if patch is not None else kopf.Patch(), action="delete"
+    )
 
 
 @kopf.on.field(API_GROUP, API_VERSION, "sshmachines", field="spec.remediation.reboot.requestedAt")
-async def sshmachine_reboot(old, new, spec, name, namespace, patch, **_kwargs):
-    """Handle explicit in-band reboot requests for remediation."""
-    if not new or new == old:
-        return
-
-    if spec.get("paused"):
-        _set_reboot_status(patch, str(new), False, "Machine is paused; reboot request ignored")
-        return
-
-    address = spec.get("address")
-    port = spec.get("port", 22)
-    user = spec.get("user", "root")
-    ssh_key_ref = spec.get("sshKeyRef", {})
-    secret_name = ssh_key_ref.get("name")
-    secret_key = ssh_key_ref.get("key", "value")
-
-    if not address or not secret_name:
-        _set_reboot_status(
-            patch,
-            str(new),
-            False,
-            "Missing spec.address or spec.sshKeyRef.name; cannot perform reboot remediation",
-        )
-        raise kopf.TemporaryError("reboot remediation waiting for address/sshKeyRef", delay=15)
-
-    try:
-        ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
-    except Exception as e:
-        _set_reboot_status(patch, str(new), False, f"Failed to read SSH key: {e}")
-        raise kopf.TemporaryError(f"failed to read SSH key for reboot remediation: {e}", delay=30) from e
-
-    try:
-        async with await SSHClient.connect(address=address, port=port, user=user, key=ssh_key) as conn:
-            reboot_cmd = "nohup sh -c 'sleep 2; (systemctl reboot || reboot)' >/dev/null 2>&1 &"
-            result = await conn.execute(reboot_cmd)
-            if not result.success:
-                _set_reboot_status(
-                    patch,
-                    str(new),
-                    False,
-                    f"Reboot command failed with exit code {result.exit_code}",
-                )
-                raise kopf.TemporaryError("reboot remediation command failed", delay=30)
-    except kopf.TemporaryError:
-        raise
-    except Exception as e:
-        _set_reboot_status(patch, str(new), False, f"SSH reboot remediation failed: {e}")
-        raise kopf.TemporaryError(f"SSH reboot remediation failed: {e}", delay=30) from e
-
-    _set_reboot_status(patch, str(new), True, "Reboot command submitted")
-    logger.info("SSHMachine %s/%s reboot remediation requested at %s", namespace, name, new)
+async def sshmachine_reboot(old, new, spec, name, namespace, patch, meta=None, status=None, **_kwargs):
+    """Reboot and timer reconciliation share the Machine and host operation locks."""
+    if new and new != old:
+        await sshmachine_reconcile(spec, status or {}, name, namespace, meta or {}, patch)
 
 
 @kopf.on.field(API_GROUP, API_VERSION, "sshmachines", field="spec.paused")
