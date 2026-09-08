@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+- **context7:** Align main publication and effective index verification
+- **context7:** Keep indexing rule within schema length limit
+
+## [0.4.3] - 2026-09-08
+
+### Bug Fixes
+
 - **security:** Remediate dependency and workflow risks
 - **container:** Exclude transient build tooling
 - **ci:** Inspect container metadata as root
