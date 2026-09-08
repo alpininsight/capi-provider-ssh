@@ -27,7 +27,7 @@
     "flux-rollout.md"
   ],
   "rules": [
-    "The default Context7 documentation source is main, independently of the GitHub default branch develop. Use a matching release tag and docs/support-matrix.md for version-specific compatibility; repository state and successful CI do not establish a live cluster rollout.",
+    "Context7 defaults to main; the GitHub default develop is for contributions. Use the matching release tag and docs/support-matrix.md for compatibility. Source state and successful CI do not prove a live cluster rollout.",
     "infrastructure.alpininsight.ai/v1beta1 is the provider API group and resource schema version, served by the Kubernetes API server. It is not a provider release number, public website, DNS requirement or CDN location.",
     "The provider implements the legacy v1beta1 CAPI contract. Treat v1beta2 migration, clusterctl packaging and hardware plugins as planned until the support matrix explicitly establishes them as supported.",
     "Use pre-provisioned Linux hosts with independently verified SSH host keys or CA trust. OS and network preparation are prerequisites; this provider does not create cloud VMs, install an OS or manage hardware power.",
