@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - Explain CAPI contract migration and current gaps
+- Schedule Q4 migration and assess OSS readiness
 
 ### Miscellaneous
 
