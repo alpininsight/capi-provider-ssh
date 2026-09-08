@@ -39,6 +39,12 @@ The bot pushes its generated branch with an explicit force-with-lease expectatio
    rules remain the final gate for races; there is no administrator bypass or
    fallback after a rejected merge.
 
+A concurrent GitHub auto-merge or maintainer merge can briefly leave a blocked
+PR snapshot while its merged status settles. For a closed, outdated or conflicting
+snapshot, the helper waits at most five seconds and re-reads once before reporting
+failure. The expected head and repository/branch identity are validated again;
+a still-blocked PR fails. This retries only observation, never the merge request.
+
 The central private changelog workflow was compared during this correction. This
 public implementation additionally enforces the completed-check wait above;
 the central workflow's auto-merge/direct-merge behavior is not sufficient by

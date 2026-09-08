@@ -60,3 +60,25 @@ and [setup-kubectl 5.1.0 release](https://github.com/Azure/setup-kubectl/release
 
 Final PR numbers, merged commits and completed remote checks are recorded in the
 corresponding post-merge follow-up comments.
+
+### Concurrent merge observation after #250/#251
+
+The required-check gate held: #251's final check completed at 07:23:52 UTC and
+GitHub merged it at 07:24:02 as `e5194f73c80da7d003b7a0f31ef1b8f08c35591f`.
+GitHub auto-merge was also enabled. The waiting workflow then rejected an outdated
+or conflicting snapshot at 07:24:03, even though a later read confirmed the expected
+PR was merged. The original error covered both `behind` and `dirty` without
+retaining which value was observed; the follow-up now logs this state explicitly.
+The [failed run](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34198314040)
+retains the timing evidence.
+
+Root cause: one mutable PR-state response was treated as a permanent rejection
+while another merge actor completed the operation. The existing idempotency test
+covered an already-settled merged response, not the transition. The CI maintainer
+added seven regression cases and a single bounded state re-read. Identity changes,
+unsuccessful checks and repeated blocked state still fail; no merge retry or
+policy bypass is introduced. Keep the concurrent-actor case in future reviews.
+
+The changelog-only push also cancelled its predecessor's develop lifecycle run.
+This remains the documented concurrency behavior: record the final replacement
+run and compare runtime inputs instead of treating cancellation as success.

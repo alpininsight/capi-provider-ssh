@@ -14,6 +14,10 @@ class MergeBlocked(RuntimeError):
     """The current evidence does not authorize a merge."""
 
 
+class PullRequestStateBlocked(MergeBlocked):
+    """A mutable PR state may be settling after a concurrent merge."""
+
+
 @dataclass(frozen=True)
 class Policy:
     integration_id: int
@@ -77,9 +81,26 @@ def validate_pull_request(pr: dict, repository: str, expected_head: str) -> None
     if pr.get("merged"):
         return
     if pr["state"] != "open" or pr.get("draft"):
-        raise MergeBlocked("The changelog PR must be open and ready for review")
+        raise PullRequestStateBlocked("The changelog PR must be open and ready for review")
     if pr.get("mergeable_state") in {"behind", "dirty"}:
-        raise MergeBlocked("Update the changelog branch and re-run checks before merging")
+        raise PullRequestStateBlocked("Update the changelog branch and re-run checks before merging")
+
+
+def read_validated_pull_request(github: GitHub, number: int, expected_head: str, *, sleep, interval: float) -> dict:
+    pr = github.pull_request(number)
+    try:
+        validate_pull_request(pr, github.repository, expected_head)
+    except PullRequestStateBlocked:
+        # GitHub auto-merge or another maintainer may finish between our polls.
+        # Retry only this read; changed identity and unsuccessful checks remain fatal.
+        print(
+            f"Rechecking PR #{number}: state={pr['state']}, mergeable_state={pr.get('mergeable_state')}",
+            flush=True,
+        )
+        sleep(min(interval, 5))
+        pr = github.pull_request(number)
+        validate_pull_request(pr, github.repository, expected_head)
+    return pr
 
 
 def checks_ready(checks: list[dict], policy: Policy, expected_head: str) -> bool:
@@ -116,8 +137,7 @@ def merge_when_ready(
 ) -> None:
     deadline = now() + timeout
     while now() < deadline:
-        pr = github.pull_request(number)
-        validate_pull_request(pr, github.repository, expected_head)
+        pr = read_validated_pull_request(github, number, expected_head, sleep=sleep, interval=interval)
         if pr.get("merged"):
             print(f"PR #{number} was already merged at the expected commit")
             return
@@ -127,8 +147,7 @@ def merge_when_ready(
         passed = checks_ready(github.checks(expected_head), policy, expected_head)
         if passed and pr.get("mergeable") is True and pr.get("mergeable_state") == "clean":
             # Re-read after collecting evidence. The merge command also guards the head server-side.
-            current = github.pull_request(number)
-            validate_pull_request(current, github.repository, expected_head)
+            current = read_validated_pull_request(github, number, expected_head, sleep=sleep, interval=interval)
             if current.get("merged"):
                 return
             if (
