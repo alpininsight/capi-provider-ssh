@@ -48,3 +48,14 @@ Upstream sources checked during review: [Python sysconfig](https://docs.python.o
 [git-cliff postprocessors](https://git-cliff.org/docs/configuration/changelog/#postprocessors),
 [pre-commit-hooks 6.0 migration](https://github.com/pre-commit/pre-commit-hooks/releases/tag/v6.0.0),
 and [setup-kubectl 5.1.0 release](https://github.com/Azure/setup-kubectl/releases/tag/v5.1.0).
+
+## 2026-09-08: CI routing and merge follow-up
+
+| Finding | Concrete improvement | Owner / evidence |
+|---|---|---|
+| Generated PRs still merged before their checks, and the old disabled rule named a skipped publication job and a stale Python check | Activate strict checks using current names and the GitHub Actions integration; test the checked-in list against the workflows | Repository administration; #245 and [CI governance](ci-governance.md) |
+| Auto-merge activation was reported as a completed-check guarantee | Explicitly wait for the expected commit's successful checks, re-read the PR and retain the server's final head/branch gates | CI maintainer; merge-state regression tests |
+| A public repository queued indefinitely for a private-only notebook group | Route external SSH E2E to a hosted runner and fail early when approved target configuration is missing | Provider CI maintainer; keep routing and endpoint-test evidence separate |
+
+Final PR numbers, merged commits and completed remote checks are recorded in the
+corresponding post-merge follow-up comments.

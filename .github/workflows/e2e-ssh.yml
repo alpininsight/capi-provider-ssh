@@ -14,12 +14,29 @@ permissions:
 
 jobs:
   e2e-ssh:
-    name: E2E SSH (strato-vm2)
-    runs-on: self-hosted
+    name: External SSH E2E
+    # Public-repository exception: the notebook runner pool is private-only.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: python
     steps:
+      - name: Verify approved target configuration
+        working-directory: ${{ runner.temp }}
+        env:
+          E2E_SSH_HOST: ${{ vars.E2E_SSH_HOST }}
+          E2E_SSH_PRIVATE_KEY: ${{ secrets.E2E_SSH_PRIVATE_KEY }}
+          E2E_SSH_KNOWN_HOSTS: ${{ secrets.E2E_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for key in E2E_SSH_HOST E2E_SSH_PRIVATE_KEY E2E_SSH_KNOWN_HOSTS; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "::error::Missing approved external SSH test configuration: $key"
+              exit 1
+            fi
+          done
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -46,19 +63,22 @@ jobs:
           set -euo pipefail
           test -n "$SSH_PRIVATE_KEY"
           test -n "$SSH_KNOWN_HOSTS"
-          mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/e2e_key
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/e2e_known_hosts
-          chmod 600 ~/.ssh/e2e_key ~/.ssh/e2e_known_hosts
+          umask 077
+          mkdir -p "$RUNNER_TEMP/capi-e2e-ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/capi-e2e-ssh/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/capi-e2e-ssh/known_hosts"
 
       - name: Run E2E SSH tests
         env:
           E2E_TESTS: "1"
-          E2E_SSH_HOST: "217.154.172.8"
-          E2E_SSH_KEY_PATH: ~/.ssh/e2e_key
-          E2E_SSH_KNOWN_HOSTS_PATH: ~/.ssh/e2e_known_hosts
+          E2E_SSH_HOST: ${{ vars.E2E_SSH_HOST }}
+          E2E_SSH_USER: ${{ vars.E2E_SSH_USER || 'root' }}
+          E2E_SSH_PORT: ${{ vars.E2E_SSH_PORT || '22' }}
+          E2E_SSH_KEY_PATH: ${{ runner.temp }}/capi-e2e-ssh/key
+          E2E_SSH_KNOWN_HOSTS_PATH: ${{ runner.temp }}/capi-e2e-ssh/known_hosts
         run: uv run pytest tests/e2e/ -v --timeout=120
 
       - name: Cleanup SSH key
         if: always()
-        run: rm -f ~/.ssh/e2e_key ~/.ssh/e2e_known_hosts
+        working-directory: ${{ runner.temp }}
+        run: rm -f "$RUNNER_TEMP/capi-e2e-ssh/key" "$RUNNER_TEMP/capi-e2e-ssh/known_hosts"

@@ -30,6 +30,7 @@ use immutable release/source references when reviewing an older deployment.
 ## Contributor material and historical records
 
 - [Development](../DEVELOPMENT.md), [test portfolio](testing.md) and [contribution guide](../CONTRIBUTING.md).
+- [CI routing and merge acceptance](ci-governance.md) defines required checks, changelog automation and external SSH configuration.
 - [P1 validation record](p1-validation.md) and [post-merge lessons](merge-reviews.md) are dated historical evidence, not live status dashboards.
 - [Roadmap](roadmap.md) and its research notes describe proposals, not supported features or release commitments.
 - [DNS cutover](dns-cutover.md) is an environment-level procedure outside the provider API.
