@@ -34,6 +34,7 @@ certification or a completed workload rollout in a particular environment.
 | Task | Guide |
 |---|---|
 | Evaluate the product and its boundaries | [Architecture](docs/architecture.md) |
+| Find, pull and pin a released container | [Container delivery](CONTAINER_IMAGES.md) |
 | Install a reviewed provider in a management cluster | [Installation](docs/installation.md) |
 | Configure inventory and Machines | [API and configuration reference](docs/api-reference.md) |
 | Operate HA, pause, reboot and cleanup | [Operations](docs/operations.md) |

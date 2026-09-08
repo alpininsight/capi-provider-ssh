@@ -1,0 +1,43 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "url": "https://context7.com/alpininsight/capi-provider-ssh",
+  "public_key": "pk_VWZLPfLHdTXNbuwS6HLCt",
+  "projectTitle": "CAPI Provider SSH",
+  "description": "Python infrastructure provider for Cluster API that bootstraps, manages and safely cleans up pre-provisioned Linux hosts over verified SSH, with persistent ownership and controller HA.",
+  "branch": "main",
+  "folders": [
+    "docs",
+    "python"
+  ],
+  "excludeFolders": [
+    "docs/roadmap",
+    "python/capi_provider_ssh",
+    "python/scripts",
+    "python/tests",
+    "python/test-artifacts",
+    ".venv",
+    "__pycache__"
+  ],
+  "excludeFiles": [
+    "CHANGELOG.md",
+    "p1-validation.md",
+    "merge-reviews.md",
+    "documentation-readiness.md",
+    "dns-cutover.md",
+    "flux-rollout.md"
+  ],
+  "rules": [
+    "Context7 defaults to main; the GitHub default develop is for contributions. Use the matching release tag and docs/support-matrix.md for compatibility. Source state and successful CI do not prove a live cluster rollout.",
+    "infrastructure.alpininsight.ai/v1beta1 is the provider API group and resource schema version, served by the Kubernetes API server. It is not a provider release number, public website, DNS requirement or CDN location.",
+    "The provider implements the legacy v1beta1 CAPI contract. Treat v1beta2 migration, clusterctl packaging and hardware plugins as planned until the support matrix explicitly establishes them as supported.",
+    "Use pre-provisioned Linux hosts with independently verified SSH host keys or CA trust. OS and network preparation are prerequisites; this provider does not create cloud VMs, install an OS or manage hardware power.",
+    "Follow docs/api-reference.md and shared/crds/ for resource fields. Delete Machines through CAPI; retain claims, quarantine and finalizers until owned cleanup succeeds. Observe durable receipts after unknown outcomes instead of replaying destructive work.",
+    "Controller HA uses active/standby peering, host Leases and remote fencing. It does not establish management control-plane HA or a recovery SLO; use docs/operations.md for pause, reboot, cleanup and recovery.",
+    "Use docs/installation.md and docs/ssh-key-lifecycle.md for deployment and credential handling. Keep secrets and private inventories out of examples. Internal Python modules are not a supported plugin SDK."
+  ],
+  "previousVersions": [
+    {
+      "tag": "v0.4.5"
+    }
+  ]
+}
