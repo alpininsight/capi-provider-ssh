@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -307,3 +308,85 @@ def test_external_e2e_preflight_runs_before_checkout_without_disclosing_secrets(
     assert "trust-value" not in result.stdout + result.stderr
     if missing:
         assert missing in result.stdout
+
+
+@pytest.mark.parametrize(
+    "ref,existing,annotated,expected",
+    [
+        ("main", None, False, "v0.5.0"),
+        ("main", "current", False, "v0.5.0"),
+        ("main", "current", True, "v0.5.0"),
+        ("main", "previous", False, ""),
+        ("main", "previous", True, ""),
+        ("main", "branch-name", False, "v0.5.0"),
+        ("develop", "previous", False, "0.5.0-alpha.1"),
+        ("fix/candidate", None, False, ""),
+    ],
+    ids=[
+        "before-release",
+        "release-first",
+        "annotated-release-first",
+        "older-release",
+        "older-annotated",
+        "branch-is-not-tag",
+        "develop",
+        "candidate",
+    ],
+)
+def test_container_version_tag_is_independent_of_release_workflow_order(tmp_path, ref, existing, annotated, expected):
+    workflow = yaml.load((ROOT / ".github/workflows/container-build-python.yml").read_text(), Loader=yaml.BaseLoader)
+    step = next(step for step in workflow["jobs"]["build-and-push"]["steps"] if step.get("id") == "version")
+
+    def git(*args):
+        return subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=CI Test",
+                "-c",
+                "user.email=ci@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "tag.gpgsign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                *args,
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    git("init", "--quiet")
+    git("commit", "--quiet", "--allow-empty", "-m", "previous release")
+    previous = git("rev-parse", "HEAD")
+    git("commit", "--quiet", "--allow-empty", "-m", "release candidate")
+    current = git("rev-parse", "HEAD")
+    if existing == "branch-name":
+        git("branch", "v0.5.0", previous)
+    elif existing:
+        target = current if existing == "current" else previous
+        args = ["tag", "v0.5.0", target]
+        if annotated:
+            args.extend(["--annotate", "--message", "release"])
+        git(*args)
+
+    output = tmp_path / "github-output"
+    result = subprocess.run(
+        ["/bin/bash", "-e", "-o", "pipefail", "-c", step["run"]],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "BUILD_REF": f"refs/heads/{ref}",
+            "BUILD_SHA": current,
+            "MAJOR_MINOR_PATCH": "0.5.0",
+            "SEMVER": "0.5.0-alpha.1",
+            "GITHUB_OUTPUT": str(output),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == f"tag={expected}\n"

@@ -56,6 +56,7 @@ and [setup-kubectl 5.1.0 release](https://github.com/Azure/setup-kubectl/release
 | Generated PRs still merged before their checks, and the old disabled rule named a skipped publication job and a stale Python check | Activate strict checks using current names and the GitHub Actions integration; test the checked-in list against the workflows | Repository administration; #245 and [CI governance](ci-governance.md) |
 | Auto-merge activation was reported as a completed-check guarantee | Explicitly wait for the expected commit's successful checks, re-read the PR and retain the server's final head/branch gates | CI maintainer; merge-state regression tests |
 | A public repository queued indefinitely for a private-only notebook group | Route external SSH E2E to a hosted runner and fail early when approved target configuration is missing | Provider CI maintainer; keep routing and endpoint-test evidence separate |
+| Release and container workflows ran concurrently, but any existing Git tag suppressed the image version tag | Compare the tag's commit with the build commit; test both workflow orders, annotated tags, previous releases and branch/tag ambiguity | Release maintainer; executable workflow regression tests |
 
 Final PR numbers, merged commits and completed remote checks are recorded in the
 corresponding post-merge follow-up comments.

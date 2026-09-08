@@ -23,6 +23,11 @@ publishes separately. Release metadata alone does not prove that a compatible
 image or a `clusterctl` provider-components bundle exists. The current repository
 does not ship a complete versioned `clusterctl` installation bundle.
 
+The release and container workflows can finish in either order. An existing Git
+tag on the build's own commit still permits the matching image version tag; a
+tag on a different commit is preserved. Verify the release tag, image version
+tag and immutable source digest together after publication.
+
 ## Evidence chain
 
 | Gate | Evidence to retain | Acceptance |
