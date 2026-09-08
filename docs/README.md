@@ -34,6 +34,8 @@ use immutable release/source references when reviewing an older deployment.
 - [CI routing and merge acceptance](ci-governance.md) defines required checks, changelog automation and external SSH configuration.
 - [P1 validation record](p1-validation.md) and [post-merge lessons](merge-reviews.md) are dated historical evidence, not live status dashboards.
 - [Roadmap](roadmap.md) and its research notes describe proposals, not supported features or release commitments.
+- [Documentation and OSS readiness](documentation-readiness.md) records the reviewed coverage, remaining product work and documentation priorities.
+- [Governance records and templates](../.github/docs/README.md) cover change records and consumer continuity planning; templates are not evidence of a certified service.
 - [DNS cutover](dns-cutover.md) is an environment-level procedure outside the provider API.
 - [Former Flux guide](flux-rollout.md) redirects to the current rollout documentation.
 
