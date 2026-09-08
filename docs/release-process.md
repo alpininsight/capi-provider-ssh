@@ -30,9 +30,17 @@ tag and immutable source digest together after publication.
 
 ## Python package identity and license verification
 
-The required version job supplies its GitVersion `SemVer` to both validation and
-published container builds as `PROVIDER_VERSION`. The installed Python package,
-its `__version__` and wheel/sdist metadata use the PEP 440 equivalent:
+The required version job selects GitVersion `MajorMinorPatch` on `main`, matching
+the stable GitHub release, and retains `SemVer` for all other refs. In
+`ManualDeployment` mode, the raw `SemVer` can still contain a numeric prerelease
+suffix before the parallel release workflow creates its tag. That candidate
+suffix must not become a stable image's package identity. Both calculated values
+must identify the same version core; invalid inputs fail before building.
+
+The selected value supplies both validation and published container builds as
+`PROVIDER_VERSION`, and supplies the OCI version labels and annotations. The
+installed Python package, its `__version__` and wheel/sdist metadata use the
+PEP 440 equivalent:
 
 | Build identity | Python metadata |
 |---|---|
@@ -44,8 +52,8 @@ its `__version__` and wheel/sdist metadata use the PEP 440 equivalent:
 The Hatch build hook freezes the calculated value in each artifact. Rebuilding
 from a source archive needs neither Git nor the original version environment.
 The non-editable container installation removes the source copy so it cannot
-shadow the installed package's release identity. The OCI version label retains
-the source SemVer; compare using the documented conversion above.
+shadow the installed package's release identity. The OCI version metadata retains
+the selected SemVer; compare using the documented conversion above.
 
 Both artifacts include `LICENSE`, `License-Expression: MPL-2.0`, `License-File` and
 public project URLs. `python/LICENSE` must match the canonical repository license
@@ -61,8 +69,12 @@ Use the intended release's calculated version, not the example version, for a
 release candidate. Add `--offline` only when build dependencies are cached.
 Artifacts live in a temporary directory and are removed after inspection. This
 check does not upload to PyPI or retroactively repair older published images.
-See [PyPA package metadata](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/)
-and [Hatch build hooks](https://hatch.pypa.io/latest/plugins/build-hook/reference/).
+The published `v0.4.4` image has a known identity mismatch; see the
+[support notice](support-matrix.md#v044-package-identity-notice). A correction
+must use a new stable patch and retain the original tag/digest for traceability.
+See [PyPA package metadata](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/),
+[Hatch build hooks](https://hatch.pypa.io/latest/plugins/build-hook/reference/)
+and [GitVersion Manual Deployment](https://gitversion.net/docs/reference/modes/manual-deployment).
 
 ## Evidence chain
 

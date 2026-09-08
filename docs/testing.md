@@ -29,6 +29,12 @@ They cover temporary single-maintainer acceptance, restoration of required
 approval, pending review/changes requested, malformed or missing review policy,
 changed review head and queued auto-merge without bypass. The artifact gate is
 part of the required version job; see [package identity](release-process.md#python-package-identity-and-license-verification).
+[Release identity regressions](../python/tests/test_release_identity.py)
+execute the actual workflow selection and release
+validation steps with the observed pre-tag `0.4.4-1` and post-tag `0.4.4` values.
+They require stable tag, package and image identity to agree, retain prereleases
+on develop/PR/candidate refs, reject invalid or inconsistent version cores, and
+check that artifact validation and both image builds consume the selected value.
 See [CI governance](ci-governance.md) for routing and external target setup.
 
 ## Failure cases that must remain covered
