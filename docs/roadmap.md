@@ -33,8 +33,10 @@ The [documentation and OSS readiness assessment](documentation-readiness.md)
 records existing coverage, concrete gaps and acceptance owners. Before broader
 external adoption, the current source completes lifecycle condition reporting,
 release-derived package/license metadata and the maintenance policy. Private
-reporting and required reviews are configured. A second authorized reviewer and
-approved external SSH evidence remain necessary. Published and deployed versions
+reporting is enabled. A temporary single-maintainer review exception applies;
+restore independent approval when a second eligible maintainer is onboarded,
+with no September 2026 availability assumed. Approved external SSH evidence
+remains necessary. Published and deployed versions
 still need their own release/rollout acceptance.
 
 Improve the evaluation walkthrough, release-specific guidance and documentation
@@ -50,7 +52,8 @@ plugin decision gates remain below; they are not all assigned to the Q4 mileston
 | Hardware extensions | Shared asset identity, capability/version negotiation, authorization and cross-protocol fencing | Provider / platform maintainers |
 | First OOB driver | Protocol emulator tests, lost-response/crash tests and an explicitly selected physical canary | Driver maintainer |
 | Production operating envelope | Fleet-scale/soak measurements, resource sizing, recovery objectives and supported OS baselines | Platform owner |
-| Security operations | Intake enabled and [maintenance/backport policy](maintenance-policy.md) implemented; ensure independent reviewer availability and exercise triage | Repository maintainers |
+| Security operations | Intake enabled and [maintenance/backport policy](maintenance-policy.md) implemented; exercise triage | Repository maintainers |
+| Review continuity | [#261](https://github.com/alpininsight/capi-provider-ssh/issues/261): end the temporary single-maintainer exception and restore the standard review profile when a second eligible maintainer is onboarded; no September 2026 or fixed Q4 delivery commitment | Repository owner |
 | Distribution metadata | Implemented in source: release-derived version, license/project metadata and isolated rebuild checks; verify publication of each accepted version | Release maintainer |
 
 ## Research inputs

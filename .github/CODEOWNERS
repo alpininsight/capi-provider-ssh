@@ -1,4 +1,4 @@
 # Peter Rosemann, Alpin Insight Solutions — verified repository administrator.
-# Independent review is currently enforced by repository rules.
-# A second authorized code owner is needed for PRs authored by this owner.
+# Temporary single-maintainer review exception; ownership and routing remain active.
+# Restore mandatory review when a second maintainer joins: docs/maintenance-policy.md.
 * @dkdndes

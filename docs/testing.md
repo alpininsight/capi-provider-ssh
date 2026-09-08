@@ -25,7 +25,8 @@ CI governance tests exercise missing, pending, failed and cancelled checks,
 changed PR heads/bases, conflicting branches, unexpected changes, check origin
 and server rejection. They also validate the required-check names against the
 actual workflows and execute the external-SSH configuration preflight.
-They cover independent review pending/changes requested, missing review policy,
+They cover temporary single-maintainer acceptance, restoration of required
+approval, pending review/changes requested, malformed or missing review policy,
 changed review head and queued auto-merge without bypass. The artifact gate is
 part of the required version job; see [package identity](release-process.md#python-package-identity-and-license-verification).
 See [CI governance](ci-governance.md) for routing and external target setup.

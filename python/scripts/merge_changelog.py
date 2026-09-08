@@ -23,16 +23,32 @@ class PullRequestStateBlocked(MergeBlocked):
 class Policy:
     integration_id: int
     checks: tuple[str, ...]
+    approval_required: bool = True
 
     @classmethod
-    def load(cls, path: Path) -> Policy:
+    def load(cls, path: Path, *, reviews_path: Path | None = None) -> Policy:
         data = json.loads(path.read_text())
         checks = tuple(data["checks"])
         if not checks or len(set(checks)) != len(checks) or not all(isinstance(name, str) and name for name in checks):
             raise MergeBlocked("Required check names must be nonempty and unique")
         if not isinstance(data["integration_id"], int) or data["integration_id"] <= 0:
             raise MergeBlocked("A GitHub integration ID is required")
-        return cls(data["integration_id"], checks)
+        try:
+            reviews = json.loads((reviews_path or path.with_name("required-reviews.json")).read_text())
+            count = reviews["required_approving_review_count"]
+            flags = [
+                reviews[key]
+                for key in (
+                    "require_code_owner_review",
+                    "require_last_push_approval",
+                    "require_extra_approval_for_unattributed_changes",
+                )
+            ]
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise MergeBlocked("Explicit review policy is missing or invalid") from exc
+        if type(count) is not int or not 0 <= count <= 10 or any(type(flag) is not bool for flag in flags):
+            raise MergeBlocked("Explicit review policy is missing or invalid")
+        return cls(data["integration_id"], checks, approval_required=count > 0 or any(flags))
 
 
 class GitHub:
@@ -160,15 +176,17 @@ def merge_when_ready(
             review = github.review_state(number)
             if review.get("headRefOid") != expected_head:
                 raise MergeBlocked("PR head changed while checking review eligibility")
+            if "reviewDecision" not in review:
+                raise MergeBlocked("GitHub review decision is missing")
             decision = review.get("reviewDecision")
             if decision == "REVIEW_REQUIRED":
                 github.queue_merge(number, expected_head)
-                print(f"PR #{number}: checks passed; auto-merge queued pending independent CODEOWNER approval")
+                print(f"PR #{number}: checks passed; auto-merge queued pending required approval")
                 return "review-pending"
             if decision == "CHANGES_REQUESTED":
                 print(f"PR #{number}: reviewer requested changes; leaving the PR open")
                 return "changes-requested"
-            if decision != "APPROVED":
+            if decision != "APPROVED" and (policy.approval_required or decision not in {None, ""}):
                 raise MergeBlocked("Required review decision is absent; verify the active review rules")
         if passed and pr.get("mergeable") is True and pr.get("mergeable_state") == "clean":
             # Re-read after collecting evidence. The merge command also guards the head server-side.

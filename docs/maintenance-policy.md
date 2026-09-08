@@ -1,10 +1,11 @@
 # Maintenance and backport policy
 
 This policy applies to the open source provider. Repository maintainers own
-triage and release acceptance; a PR names its change owner and independent
-reviewer. The [support matrix](support-matrix.md) defines tested component and
-host combinations. Maintenance does not certify additional platforms or promise
-an SLA, fixed response time, LTS period or guaranteed release date.
+triage and release acceptance; a PR names its change owner and records acceptance
+under the current review policy below. The [support matrix](support-matrix.md)
+defines tested component and host combinations. Maintenance does not certify
+additional platforms or promise an SLA, fixed response time, LTS period or
+guaranteed release date.
 
 ## Supported releases
 
@@ -50,9 +51,10 @@ release; do not disguise it as a compatible security patch.
    separately reviewed revert PRs, release the minimal stable fix, then restore
    the deferred feature through a new reviewed PR. Never merge a breaking change
    merely to get a security fix onto the stable line.
-4. Run the required checks on the actual release head and independently review
-   the final diff. Backport conflicts require renewed review and affected tests;
-   an approval of the original commit does not approve the adaptation. Verify
+4. Run the required checks on the actual release head and inspect the final diff
+   under the current review policy. Backport conflicts require renewed review
+   and affected tests; an approval of the original commit does not approve the
+   adaptation. Verify
    GitVersion's selected patch version, package/OCI identity and release notes.
 5. Publish through the existing workflows, then verify source tag, image digest,
    package metadata, scan and provenance. Coordinate the advisory/fixed-version
@@ -66,21 +68,46 @@ review bypasses or removal of lifecycle finalizers.
 
 ## Independent review and continuity
 
-`main` and `develop` require at least one approving review, code-owner approval,
-dismissal of stale approvals, approval of the last push by a different actor,
-resolved review threads and all eight strict checks. These requirements also
-apply to bot, dependency, documentation and release PRs. A bot can queue
-GitHub auto-merge; it cannot supply the independent approval.
+The standard policy requires independent approval. On **2026-09-08**, the repository
+owner authorized a **temporary single-maintainer exception** for `main` and
+`develop`. Peter Rosemann (`@dkdndes`), Alpin Insight Solutions, remains the
+administrator and [CODEOWNER](../.github/CODEOWNERS). Ownership and review routing
+remain active; a second person's approval is temporarily optional. This applies
+equally to provider, dependency, documentation, bot and release PRs.
 
-The [CODEOWNERS](../.github/CODEOWNERS) file must resolve to actors with write
-access. The previously listed `@alpininsight/sre` team did not resolve in GitHub's
-validation. Peter Rosemann (`@dkdndes`), Alpin Insight Solutions, is the verified
-existing repository administrator; naming that account does not add a second
-maintainer. An administrator-authored PR still
-needs a separately authorized eligible reviewer/code owner. If none is available,
-the PR remains blocked; no emergency self-approval or bot substitution is defined.
+| Review control | Current temporary policy | Standard policy to restore |
+|---|---|---|
+| Required approving reviews | 0 | At least 1 independent approval |
+| Required CODEOWNER and last-push approval | Disabled | Enabled |
+| Extra approval for unattributed changes | Disabled | Enabled |
+| Stale-approval dismissal and resolved review threads | Required | Required |
+| PR, up-to-date branch and all eight technical checks | Required | Required |
+| Administrator/bot bypass or synthetic self-approval | None | None |
 
-At a maintainer change and before a release, check private reporting availability,
-GitHub CODEOWNERS errors, effective branch rules and reviewer availability. Access
-and team membership changes require the repository owner's authorization. See
-[CI governance](ci-governance.md) for the live-rule verification commands.
+The active parameters are in [required-reviews.json](../.github/required-reviews.json);
+the [standard profile](../.github/required-reviews-standard.json) preserves the
+restoration values. During the exception, the maintainer inspects the final diff,
+tests and release evidence. This is owner acceptance, not independent assurance.
+Contributors may still provide reviews; requested changes and unresolved threads
+must be addressed. Automation cannot supply a human approval.
+
+Restore the standard policy **when a second eligible maintainer is onboarded**,
+tracked in [issue #261](https://github.com/alpininsight/capi-provider-ssh/issues/261).
+That availability is not planned for September 2026. This is an event-based
+transition, with no automatic October 1 switch and no promised hiring date:
+
+1. The repository owner authorizes the second maintainer's write access and adds
+   a valid owner entry through a PR. Verify GitHub CODEOWNERS validation on the
+   relevant base branches; an entry only in a PR head does not govern that PR.
+2. Copy the standard profile into `required-reviews.json` through a PR and update
+   the repository ruleset to match. Retain all technical checks, branch protections
+   and the main-branch merge-commit requirement.
+3. Verify the effective rules on both branches and exercise author-created and
+   bot-created PRs: each must wait for a distinct eligible CODEOWNER's approval,
+   and a new push must require fresh approval. Record the evidence and end the
+   temporary exception in the documentation and tracking issue.
+
+At every maintainer change and before a release, verify private reporting,
+CODEOWNERS errors, effective rules and whether the restoration trigger is met.
+Do not treat this exception as a permanent change to the standard policy. See
+[CI governance](ci-governance.md) for live-rule verification commands.

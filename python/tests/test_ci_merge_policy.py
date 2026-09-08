@@ -100,10 +100,27 @@ class GitHub:
         self.merges.append((number, sha))
 
 
-def run(github, *, timeout=3):
+def run(github, *, timeout=3, policy=POLICY):
     clock = Clock()
-    guard.merge_when_ready(github, 123, HEAD, POLICY, timeout=timeout, interval=1, now=clock.now, sleep=clock.sleep)
+    guard.merge_when_ready(github, 123, HEAD, policy, timeout=timeout, interval=1, now=clock.now, sleep=clock.sleep)
     return clock
+
+
+def optional_reviews(**changes):
+    return {
+        "required_approving_review_count": 0,
+        "require_code_owner_review": False,
+        "require_last_push_approval": False,
+        "require_extra_approval_for_unattributed_changes": False,
+        **changes,
+    }
+
+
+def load_review_policy(tmp_path, reviews):
+    checks = tmp_path / "required-checks.json"
+    checks.write_text(json.dumps({"integration_id": POLICY.integration_id, "checks": POLICY.checks}))
+    (tmp_path / "required-reviews.json").write_text(json.dumps(reviews))
+    return guard.Policy.load(checks)
 
 
 def test_merges_only_expected_commit_after_all_required_checks():
@@ -449,11 +466,12 @@ def test_container_version_tag_is_independent_of_release_workflow_order(tmp_path
     assert output.read_text() == f"tag={expected}\n"
 
 
+@pytest.mark.parametrize("approval_required", [True, False])
 @pytest.mark.parametrize("decision", ["REVIEW_REQUIRED", "CHANGES_REQUESTED"])
-def test_human_review_wait_does_not_poll_until_timeout_or_merge(decision):
+def test_human_review_wait_does_not_poll_until_timeout_or_merge(decision, approval_required):
     github = GitHub(prs=[pull_request(mergeable_state="blocked")])
     github.review["reviewDecision"] = decision
-    clock = run(github)
+    clock = run(github, policy=guard.Policy(POLICY.integration_id, POLICY.checks, approval_required))
     assert clock.elapsed == 0
     assert not github.merges
     assert github.queued == ([(123, HEAD)] if decision == "REVIEW_REQUIRED" else [])
@@ -487,3 +505,79 @@ def test_auto_merge_command_has_head_guard_and_no_admin_bypass(monkeypatch):
     monkeypatch.setattr(guard.GitHub, "command", staticmethod(lambda *args: calls.append(args)))
     guard.GitHub(REPOSITORY).queue_merge(123, HEAD)
     assert calls == [("pr", "merge", "123", "--repo", REPOSITORY, "--auto", "--squash", "--match-head-commit", HEAD)]
+
+
+@pytest.mark.parametrize("decision", [None, ""])
+def test_temporary_single_maintainer_policy_allows_no_approval_after_checks(tmp_path, decision):
+    github = GitHub()
+    github.review["reviewDecision"] = decision
+    run(github, policy=load_review_policy(tmp_path, optional_reviews()))
+    assert github.merges == [(123, HEAD)]
+    assert github.checked_heads == [HEAD]
+    assert not github.queued
+
+
+def test_restored_standard_policy_requires_approval_again():
+    policy = guard.Policy.load(
+        ROOT / ".github/required-checks.json", reviews_path=ROOT / ".github/required-reviews-standard.json"
+    )
+    github = GitHub()
+    github.review["reviewDecision"] = None
+    with pytest.raises(guard.MergeBlocked, match="Required review decision is absent"):
+        run(github, policy=guard.Policy(policy.integration_id, POLICY.checks, policy.approval_required))
+    assert not github.merges and not github.queued
+
+
+@pytest.mark.parametrize(
+    "review",
+    [
+        {"headRefOid": HEAD},
+        {"headRefOid": HEAD, "reviewDecision": "UNKNOWN"},
+        {"headRefOid": "c" * 40, "reviewDecision": None},
+    ],
+)
+def test_temporary_exception_rejects_incomplete_or_changed_review_evidence(review):
+    github = GitHub()
+    github.review = review
+    with pytest.raises(guard.MergeBlocked):
+        run(github, policy=guard.Policy(POLICY.integration_id, POLICY.checks, False))
+    assert not github.merges and not github.queued
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"required_approving_review_count": 1},
+        {"require_code_owner_review": True},
+        {"require_last_push_approval": True},
+        {"require_extra_approval_for_unattributed_changes": True},
+    ],
+)
+def test_reenabled_review_requirement_blocks_absent_approval(tmp_path, change):
+    policy = load_review_policy(tmp_path, optional_reviews(**change))
+    github = GitHub()
+    github.review["reviewDecision"] = None
+    with pytest.raises(guard.MergeBlocked, match="Required review decision is absent"):
+        run(github, policy=policy)
+    assert not github.merges and not github.queued
+
+
+@pytest.mark.parametrize(
+    "reviews",
+    [
+        None,
+        "{invalid",
+        "{}",
+        "[]",
+        json.dumps({"required_approving_review_count": 0, "require_code_owner_review": False}),
+        json.dumps(optional_reviews(required_approving_review_count=False)),
+        json.dumps(optional_reviews(require_code_owner_review="false")),
+    ],
+)
+def test_missing_or_malformed_review_policy_cannot_silently_disable_approval(tmp_path, reviews):
+    checks = tmp_path / "required-checks.json"
+    checks.write_text(json.dumps({"integration_id": POLICY.integration_id, "checks": POLICY.checks}))
+    if reviews is not None:
+        (tmp_path / "required-reviews.json").write_text(reviews)
+    with pytest.raises(guard.MergeBlocked, match="Explicit review policy is missing or invalid"):
+        guard.Policy.load(checks)

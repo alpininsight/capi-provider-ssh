@@ -33,9 +33,11 @@ verbs and defaults against source. Mark proposals and historical evidence
 explicitly. Keep operational credentials, private inventories, generated reports,
 local approval files and machine-specific runtime state out of the repository.
 
-Review acceptance requires an independent eligible CODEOWNER, fresh approval
-of the current change and all required checks. Bot-generated PRs follow the same
-rules. See [CI governance](docs/ci-governance.md) and
+All required checks and resolved review threads remain mandatory. During the
+temporary single-maintainer exception, Peter Rosemann (`@dkdndes`), Alpin Insight
+Solutions, records owner acceptance; independent approval becomes mandatory again
+when a second eligible maintainer is onboarded. Bot-generated PRs follow the same
+active policy. See [CI governance](docs/ci-governance.md) and
 [maintenance/backports](docs/maintenance-policy.md).
 
 ## After merge

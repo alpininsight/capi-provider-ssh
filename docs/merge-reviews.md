@@ -100,9 +100,17 @@ The subsequent audit identified inherited gaps despite these green checks:
 | Cleanup could leave an old Ready condition; pause reporting and transition times were not fully exercised | Merge conditions by type, preserve unrelated/history conditions, report pause/Unknown and observed generations; assert API persistence before reset and actual schema admission | Provider/CI: lifecycle and real API tests in the priority-fix PR |
 | The old release retry test mocked a successful no-op release; an actual release/connection error could erase cleanup success | Inject release failure, connection teardown failure and loss of the API response after a committed success; retain the receipt and retry without reset | Provider/CI: stateful negative regressions; extend any future remote operation with post-side-effect failure coverage |
 | Container imports passed while Python distribution metadata stayed at 0.1.0 and license files were absent | Feed the release calculation into both container builds; inspect wheel/sdist license and version, rebuild outside Git/build environment and compare installed runtime identity | Release/CI: required version/artifact and container validation jobs |
-| A CODEOWNERS comment was mistaken for enforceable review, and the named SRE team was invalid | Enable private intake and strict independent/CODEOWNER review; validate effective rules and owners before releases; keep author-created PRs blocked until an independent eligible reviewer exists | Repository administrator: settings verified on 2026-09-08; second reviewer still requires explicit authorization |
+| A CODEOWNERS comment was mistaken for enforceable review, and the named SRE team was invalid | Enable private intake, validate owner access and distinguish the standard review policy from explicitly authorized temporary operation; check actual reviewer availability before enabling a mandatory second-person gate | Repository administrator: valid owner is Peter Rosemann (`@dkdndes`); the 2026-09-08 temporary single-maintainer exception and its restoration trigger are recorded in the maintenance policy |
 | Automation treated all merge blocking as a CI wait | Distinguish required review from unfinished checks; queue normal auto-merge after checks and report review-pending, with no automated approval or bypass | CI maintainer: review-state, changed-head and command-guard regressions |
 
 Code and documentation improvements above describe the current priority-fix
 source. Record its final PR head and completed hosted checks in the PR; do not
 reuse this changelog-only CI result as validation of new provider behavior.
+
+The priority-fix PR initially required a second person's approval although only
+one eligible maintainer existed. Successful CI could not resolve that governance
+deadlock. The owner authorized a temporary exception on 2026-09-08, with mandatory
+review restored when a second eligible maintainer joins, not in September 2026.
+Keep active and standard review profiles versioned, test both automation paths
+and revisit the exception at onboarding and release acceptance. The eight
+technical checks and resolved review threads remain mandatory throughout.
