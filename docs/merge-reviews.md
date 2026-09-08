@@ -114,3 +114,44 @@ review restored when a second eligible maintainer joins, not in September 2026.
 Keep active and standard review profiles versioned, test both automation paths
 and revisit the exception at onboarding and release acceptance. The eight
 technical checks and resolved review threads remain mandatory throughout.
+
+## 2026-09-08: stable release #263 and escaped package identity mismatch
+
+[Release PR #263](https://github.com/alpininsight/capi-provider-ssh/pull/263)
+merged at 15:47:12 UTC as `701452fd5ca3b1f32b711e90d28ca5b425fdb8bc`.
+Its parents are the previous main release and reviewed develop head
+`09e779ac6e20309711eee8dfd4b91418104f04e0`; the merged tree equals the reviewed
+tree. All eight required checks completed successfully before the merge.
+[v0.4.4](https://github.com/alpininsight/capi-provider-ssh/releases/tag/v0.4.4)
+and its Git tag target the actual merge commit. The maintained minor remains 0.4.x.
+
+The [container workflow](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34246994328)
+passed and published linux/amd64 and linux/arm64 under OCI index
+`sha256:2b7bdfc1abb7de93f0ce4993398a60f7ab48b2b4ed26fb5a9c0c44bc6e52a507`.
+Both platform configs identify the correct source but label the version
+`0.4.4-1`; the SBOM records Python package `0.4.4.dev0+gitversion.31`.
+This is an escaped release-identity defect despite successful package, image
+and scan checks. The source tag and digest must remain intact; the correction
+requires a new patch release. No consumer rollout is established by this audit.
+The [main Python/Kind run](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34246994196)
+also passed: 372 isolated tests on each Python version, 11 real API tests and one
+complete lifecycle/failover test. This confirms the identity gap escaped a green
+post-merge run as well as the PR checks.
+
+| Finding / recurring pattern | Concrete improvement | Owner / acceptance |
+|---|---|---|
+| Stable release/image tags used `MajorMinorPatch`, while package builds used raw `SemVer`; ManualDeployment returned a numeric prerelease before tag creation | Select `MajorMinorPatch` for every main artifact and retain `SemVer` elsewhere; reject disagreeing version cores | Release maintainer; executable pre-tag/post-tag workflow regression and a new stable artifact with matching identity |
+| Artifact tests compared runtime metadata only with another value derived from the same candidate input | Compare package and image identity with the independent stable-release output; inspect both platform configs and SBOM after publication | CI/release maintainer; `test_release_identity.py` plus immutable registry evidence |
+| OCI annotations inherited default metadata independently of explicit labels | Supply the same selected version and declared license to labels and annotations, and explicitly pass annotations into publication | Release maintainer; workflow wiring check and next image inspection |
+| A transient `BEHIND` snapshot during release PR checks was initially interpreted as requiring a branch back-sync | Re-read final merge eligibility after checks complete; compare exclusive file changes and exact heads before proposing history changes | Change owner; the same #263 head/base became `CLEAN` without any branch mutation |
+| Several functional changes already shared the squash commit of #260 | Keep the five release PR sections and their original PR/time references; use one functional package per future develop PR when independent history is required | Change owner; do not describe review sections as separate historical merges |
+
+Private security reporting is enabled, main CODEOWNERS validation reports no
+errors, and issue #261 still tracks restoration of independent review upon
+second-maintainer onboarding. The temporary exception does not remove technical
+gates. Final post-merge CI and correction-PR evidence belong in the #263 follow-up
+comment, so this record does not require recursively merging its own result.
+
+Primary sources: [GitVersion Manual Deployment](https://gitversion.net/docs/reference/modes/manual-deployment),
+[Docker registry inspection](https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/)
+and [Docker metadata annotations](https://github.com/docker/metadata-action#annotations).
