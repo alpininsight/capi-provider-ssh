@@ -145,6 +145,12 @@ def record_cleanup(namespace, name, meta, status, patch, phase, reason, message)
     """Publish status and the durable receipt together before the next side effect."""
     updates = cleanup_conditions(reason, message, succeeded=phase == "Succeeded")
     updates += [item for item in patch.status.get("conditions", []) if item["type"] == "Paused"]
+    # Kopf applies its staged patch after the handler, including on failure.
+    # It must not overwrite a terminal receipt if the API commits it but the
+    # response and subsequent confirmation read are both lost.
+    patch.status.pop("cleanup", None)
+    if phase in {"Succeeded", "Failed"}:
+        patch.status.pop("conditions", None)
     current = persist_machine_status(
         namespace,
         name,
@@ -156,7 +162,6 @@ def record_cleanup(namespace, name, meta, status, patch, phase, reason, message)
         },
     )
     patch.status["ready"] = False
-    patch.status["cleanup"] = {"phase": phase}
     patch.status["conditions"] = current["status"]["conditions"]
 
 
@@ -288,7 +293,6 @@ async def delete_machine(spec, status, name, namespace, meta, patch):
                 raise kopf.TemporaryError("Machine identity changed during cleanup finalization", delay=15) from exc
             if current.get("status", {}).get("cleanup", {}).get("phase") == "Succeeded":
                 succeeded = True
-                patch.status["cleanup"] = current["status"]["cleanup"]
                 patch.status["conditions"] = current["status"]["conditions"]
         if succeeded:
             raise kopf.TemporaryError(

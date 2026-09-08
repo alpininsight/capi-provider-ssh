@@ -672,7 +672,9 @@ async def test_cleanup_conditions_are_durable_before_ssh_and_preserve_history(ap
     assert conditions(result)["ConsumerHealthy"] == external
 
 
-@pytest.mark.parametrize("failure", ["release", "connection-exit", "lost-status-response"])
+@pytest.mark.parametrize(
+    "failure", ["release", "connection-exit", "lost-status-response", "lost-status-and-confirmation"]
+)
 async def test_cleanup_receipt_survives_post_reset_failure(api, ssh, monkeypatch, failure):
     from capi_provider_ssh import lifecycle
 
@@ -686,15 +688,26 @@ async def test_cleanup_receipt_survives_post_reset_failure(api, ssh, monkeypatch
             ssh.__aexit__.side_effect = ConnectionError("disconnect after reset")
         else:
             persist = lifecycle.persist_machine_status
+            read = lifecycle.get_object
+            committed = False
+
+            def lose_confirmation(*args, **kwargs):
+                if committed and failure == "lost-status-and-confirmation":
+                    raise kopf.TemporaryError("Cannot observe cleanup receipt while the API is unavailable")
+                return read(*args, **kwargs)
+
+            patcher.setattr(lifecycle, "get_object", lose_confirmation)
 
             def lose_success_response(namespace, name, uid, changes):
+                nonlocal committed
                 result = persist(namespace, name, uid, changes)
                 if changes.get("cleanup", {}).get("phase") == "Succeeded":
+                    committed = True
                     raise kopf.TemporaryError("The API response was lost after commit")
                 return result
 
             patcher.setattr(lifecycle, "persist_machine_status", lose_success_response)
-        with pytest.raises(kopf.TemporaryError, match="Cleanup completed"):
+        with pytest.raises(kopf.TemporaryError, match="Cleanup completed|Cannot observe cleanup receipt"):
             await reconcile(api, machine, delete=True)
     ssh.__aexit__.side_effect = None
     current = api.current(machine)
