@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Locate container scan metadata
 - Report container vulnerability targets
 
+### Documentation
+
+- Explain CAPI contract migration and current gaps
+
 ### Miscellaneous
 
 - **deps-dev:** Bump ruff in /python in the version-updates group
