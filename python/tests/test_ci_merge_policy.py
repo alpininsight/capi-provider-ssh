@@ -75,8 +75,10 @@ class GitHub:
         self.changed_files = files if files is not None else [{"filename": "CHANGELOG.md", "status": "modified"}]
         self.merges = []
         self.checked_heads = []
+        self.reads = 0
 
     def pull_request(self, number):
+        self.reads += 1
         return self.prs.pop(0) if len(self.prs) > 1 else self.prs[0]
 
     def checks(self, sha):
@@ -158,6 +160,7 @@ def test_outdated_or_conflicting_branch_stops_for_new_checks(state):
     with pytest.raises(guard.MergeBlocked, match="Update the changelog branch"):
         run(github)
     assert not github.merges
+    assert github.reads == 2  # One bounded re-read, not an unbounded retry loop.
 
 
 @pytest.mark.parametrize("state", ["blocked", "unknown", "unstable"])
@@ -241,6 +244,52 @@ def test_previously_merged_expected_head_is_idempotent():
     run(github)
     assert not github.merges
     assert not github.checked_heads
+
+
+@pytest.mark.parametrize("state", ["behind", "dirty", "closed"])
+def test_concurrent_merge_settles_before_reporting_blocked(state):
+    changing = pull_request(**({"state": "closed"} if state == "closed" else {"mergeable_state": state}))
+    merged = pull_request(state="closed", merged=True, mergeable_state="unknown")
+    github = GitHub(prs=[changing, merged])
+    assert run(github).elapsed == 1
+    assert not github.merges
+    assert not github.checked_heads
+
+
+def test_concurrent_merge_after_check_collection_is_idempotent():
+    github = GitHub(
+        prs=[pull_request(), pull_request(mergeable_state="behind"), pull_request(state="closed", merged=True)]
+    )
+    assert run(github).elapsed == 1
+    assert github.checked_heads == [HEAD]
+    assert not github.merges
+
+
+def test_changed_head_during_status_settlement_is_rejected():
+    changed = pull_request(state="closed", merged=True)
+    changed["head"]["sha"] = "c" * 40
+    github = GitHub(prs=[pull_request(mergeable_state="behind"), changed])
+    with pytest.raises(guard.MergeBlocked, match="PR head changed"):
+        run(github)
+    assert not github.merges
+
+
+def test_cleared_transient_state_still_requires_completed_checks():
+    github = GitHub(
+        prs=[pull_request(mergeable_state="behind"), pull_request()],
+        checks=[check_runs(status="in_progress", conclusion=None)],
+    )
+    with pytest.raises(guard.MergeBlocked, match="Timed out"):
+        run(github)
+    assert github.checked_heads
+    assert not github.merges
+
+
+def test_cleared_transient_state_can_merge_only_after_validation():
+    github = GitHub(prs=[pull_request(mergeable_state="behind"), pull_request()])
+    assert run(github).elapsed == 1
+    assert github.checked_heads == [HEAD]
+    assert github.merges == [(123, HEAD)]
 
 
 def test_server_rejection_has_no_merge_fallback(monkeypatch):
