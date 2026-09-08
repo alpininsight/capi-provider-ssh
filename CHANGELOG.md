@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci:** Secure merges, route SSH tests and preserve release tags
 - **ci:** Tolerate concurrent changelog merge status updates
 - Complete lifecycle conditions, package identity and review policy
+- Align stable package and image identity with release tags
 
 ### CI/CD
 
