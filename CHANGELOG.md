@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **health:** Require API and fresh peering for readiness
 - **health:** Reduce probe memory and allow controller bursts
 - **ci:** Secure merges, route SSH tests and preserve release tags
+- **ci:** Tolerate concurrent changelog merge status updates
 
 ### CI/CD
 
