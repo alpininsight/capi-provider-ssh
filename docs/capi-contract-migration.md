@@ -4,6 +4,11 @@ Reviewed: **2026-09-08**, against provider **v0.4.3** and its reviewed develop
 source `542755537b67deeaa21a76f281111bf1b6cb83b0`. This is an implementation
 assessment and work plan; it does not enable v1beta2 support.
 
+Implementation is planned for **Q4 2026** in
+[issue #257](https://github.com/alpininsight/capi-provider-ssh/issues/257) and the
+[quarterly roadmap](roadmap.md#q4-2026--capi-contract-migration). The issue tracks
+the six acceptance steps below; publishing this plan does not complete them.
+
 The provider still advertises the legacy v1beta1 contract because its API access,
 CRD contract labels and lifecycle test harness have not completed the migration.
 P1 established lifecycle safety and HA on that integration. Adding the new
