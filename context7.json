@@ -20,7 +20,6 @@
   ],
   "excludeFiles": [
     "CHANGELOG.md",
-    "CONTAINER_IMAGES.md",
     "p1-validation.md",
     "merge-reviews.md",
     "documentation-readiness.md",
