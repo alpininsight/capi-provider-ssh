@@ -1353,7 +1353,13 @@ class TestSSHMachineDryRun:
             )
 
         conditions = patch_obj["status"]["conditions"]
-        assert len(conditions) == 4
+        assert {item["type"] for item in conditions} == {
+            "Ready",
+            "InfrastructureReady",
+            "BootstrapExecSucceeded",
+            "DryRunValidated",
+            "Paused",
+        }
         by_type = _conditions_by_type(patch_obj["status"])
         assert by_type["Ready"]["status"] == "False"
         assert by_type["InfrastructureReady"]["status"] == "False"

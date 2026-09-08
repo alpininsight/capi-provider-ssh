@@ -1,9 +1,11 @@
 # Support and validation matrix
 
-Reviewed: **2026-09-07**. This is the product compatibility reference for the
+Reviewed: **2026-09-08**. This is the product compatibility reference for the
 checked-out source, not a live deployment dashboard. A published architecture,
 passing contract test and certified physical workload are different claims.
-No separate commercial SLA, LTS schedule or hardware certification is declared.
+The latest stable minor (currently 0.4.x) is maintained under the
+[maintenance/backport policy](maintenance-policy.md). No separate commercial SLA,
+LTS duration or hardware certification is declared.
 
 ## Tested baseline
 
@@ -32,6 +34,8 @@ under review; historical counts are not a substitute.
 | Host allocation and cleanup | Implemented | UID/resourceVersion claims, persisted binding, quarantine and successful cleanup before release; no automatic adoption |
 | Bootstrap and failover | Implemented | Real CAPI init/joins, durable receipts, provider takeover and no duplicate bootstrap in the Kind lane |
 | CAPI pause | Implemented | Owner-chain pause, missing/recreated owners and API denial prevent new remote work; accepted commands can continue |
+| Lifecycle conditions | Implemented in this source; legacy contract retained | Pause/Unknown reporting, stable status transition times, observed generations and cleanup readiness/receipt status; see [API semantics](api-reference.md#lifecycle-conditions) |
+| Python distribution metadata | Release-derived for versioned builds | Wheel/sdist and isolated rebuild retain version, MPL-2.0 license file and project URLs; unversioned source explicitly identifies itself as such; no PyPI publication claim |
 | Reboot remediation | Implemented, in-band SSH | Completion requires changed boot ID; Unknown is not automatically replayed and blocks unresolved cleanup |
 | Controller HA | Two replicas with mandatory peering, host Leases and remote fencing | Requires eligible placement and a healthy management API/network; no end-to-end recovery SLO |
 | Readiness / liveness | Authenticated API and own current-process heartbeat / local HTTP health | Both active and standby are checked; not proof of every watch/handler |
@@ -46,12 +50,18 @@ under review; historical counts are not a substitute.
 
 ## Version evolution
 
-CAPI 1.12 is an upgrade bridge, not a permanent pin. Follow the current upstream
-version policy, keep core/CABPK/KCP aligned and validate each selected transition.
+CAPI 1.12 is an upgrade bridge in upstream maintenance mode, not a permanent pin.
+Follow the current upstream version policy, keep core/CABPK/KCP aligned and
+validate each selected transition.
 Do not jump directly from 1.9 to 1.14. Plan a versioned provider v1beta2 migration;
 upstream removal of legacy v1beta1 compatibility is **tentatively April 2027**.
 An extra `initialization.provisioned` status field alone does not complete that
 migration. Never downgrade blindly across persisted ownership-state changes.
+
+The [contract comparison and migration plan](capi-contract-migration.md) records
+the current implementation, mandatory and optional differences, and acceptance
+steps. The provider may retain its own v1beta1 resource API while implementing
+the v1beta2 CAPI contract; a CRD API rename is not automatically required.
 
 ## Consumer deployment records
 

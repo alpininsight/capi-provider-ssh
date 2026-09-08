@@ -8,6 +8,7 @@ import kopf
 import kubernetes
 
 from capi_provider_ssh import API_GROUP, API_VERSION
+from capi_provider_ssh.conditions import merge_conditions
 
 PAUSED_ANNOTATION = "cluster.x-k8s.io/paused"
 CLUSTER_LABEL = "cluster.x-k8s.io/cluster-name"
@@ -70,6 +71,9 @@ def persist_machine_status(namespace: str, name: str, uid: str, changes: dict) -
     current = get_object("sshmachines", namespace, name)
     if current["metadata"].get("uid") != uid:
         raise kopf.TemporaryError("SSHMachine UID changed before status persistence", delay=15)
+    changes = dict(changes)
+    if "conditions" in changes:
+        changes["conditions"] = merge_conditions(current.get("status", {}).get("conditions", []), changes["conditions"])
     try:
         return kubernetes.client.CustomObjectsApi().patch_namespaced_custom_object_status(
             group=API_GROUP,

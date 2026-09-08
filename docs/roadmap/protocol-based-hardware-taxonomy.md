@@ -13,7 +13,9 @@ must integrate the ownership, fencing and outcome-observation contracts in
 
 ## Status
 
-**Accepted** — incorporated into `docs/roadmap.md` v0.3.x section.
+**Historical taxonomy decision.** The earlier v0.3.x roadmap target is obsolete.
+The [current roadmap](../roadmap.md) tracks capability decision gates; this
+research does not establish a shipped plugin or an implementation release date.
 
 ## Context
 

@@ -7,11 +7,18 @@
 
 Issue: [#119](https://github.com/alpininsight/capi-provider-ssh/issues/119)
 
+The issue was closed on **2026-02-23**. The current
+[Machine controller](../../python/capi_provider_ssh/controllers/sshmachine.py)
+implements format-aware shell/cloud-config handling and periodic reconciliation.
+The investigation below records the original problem and proposed slices; it is
+not an open implementation checklist. Current scope and evidence are in the
+[support matrix](../support-matrix.md) and [test portfolio](../testing.md).
+
 ## Problem Summary
 
-The SSHMachine controller currently assumes bootstrap data is a shell script and executes it directly as `/tmp/bootstrap.sh`. In production CAPI flows, bootstrap data is commonly cloud-init (`#cloud-config`), which fails when executed as bash.
+At the time of issue #119, the SSHMachine controller assumed bootstrap data was a shell script and executed it directly as `/tmp/bootstrap.sh`. CAPI cloud-init (`#cloud-config`) payloads failed when executed as bash.
 
-Issue #119 also highlights a reliability gap: reconciliation can be missed when `ownerReferences` are not present at first creation event and no later event re-triggers reconciliation.
+Issue #119 also described a reliability gap: reconciliation could be missed when `ownerReferences` were absent at the first creation event and no later event re-triggered reconciliation.
 
 ## Goals
 

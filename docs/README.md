@@ -10,6 +10,7 @@ use immutable release/source references when reviewing an older deployment.
 |---|---|
 | [Architecture](architecture.md) | Ownership, CAPI boundaries and safety model |
 | [Support matrix](support-matrix.md) | Tested combinations, contract level and evidence gaps |
+| [CAPI contract migration](capi-contract-migration.md) | v1beta1/v1beta2 differences, current implementation and ordered acceptance steps |
 | [API and configuration](api-reference.md) | Resource fields, defaults and controller settings |
 | [RBAC](rbac-requirements.md) | Actual permissions and trust scope |
 | [External etcd](external-etcd.md) | Certificate and kubeadm configuration contract |
@@ -25,6 +26,7 @@ use immutable release/source references when reviewing an older deployment.
 | [Troubleshooting](faq.md) | Symptom, diagnostic evidence and next safe action |
 | [Release process](release-process.md) | Source-to-image-to-GitOps acceptance |
 | [Rollout validation](live-rollout-validation.md) | Canary lifecycle and teardown evidence |
+| [Maintenance and backports](maintenance-policy.md) | Supported release lines, fix selection and independent review |
 | [Security policy](../SECURITY.md) | Reporting channel, privilege boundary and evidence handling |
 
 ## Contributor material and historical records
@@ -33,6 +35,8 @@ use immutable release/source references when reviewing an older deployment.
 - [CI routing and merge acceptance](ci-governance.md) defines required checks, changelog automation and external SSH configuration.
 - [P1 validation record](p1-validation.md) and [post-merge lessons](merge-reviews.md) are dated historical evidence, not live status dashboards.
 - [Roadmap](roadmap.md) and its research notes describe proposals, not supported features or release commitments.
+- [Documentation and OSS readiness](documentation-readiness.md) records the reviewed coverage, remaining product work and documentation priorities.
+- [Governance records and templates](../.github/docs/README.md) cover change records and consumer continuity planning; templates are not evidence of a certified service.
 - [DNS cutover](dns-cutover.md) is an environment-level procedure outside the provider API.
 - [Former Flux guide](flux-rollout.md) redirects to the current rollout documentation.
 

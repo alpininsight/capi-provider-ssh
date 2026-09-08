@@ -16,8 +16,11 @@ reviewed kubeadm bootstrap configuration supplies the container runtime and
 Kubernetes packages. CAPI core, the kubeadm bootstrap provider and the kubeadm
 control-plane provider retain their own lifecycle responsibilities.
 
-The implemented provider uses the **legacy v1beta1 CAPI contract**. The presence
-of `status.initialization.provisioned` does not establish v1beta2 conformance.
+The provider currently implements the **legacy v1beta1 CAPI contract**. Although
+CAPI 1.11 introduced **v1beta2**, our CRD contract labels, core API access and
+end-to-end tests still target the legacy integration. The
+[contract comparison and migration plan](docs/capi-contract-migration.md) shows
+what is implemented, what differs and the remaining steps.
 Two controller replicas, API-aware readiness, host Leases and remote UID fencing
 provide lifecycle HA. A provider outage does not stop existing workload pods.
 Hardware power management, OS installation and a plugin runtime are not shipped.

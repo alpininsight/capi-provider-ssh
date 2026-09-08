@@ -82,3 +82,35 @@ policy bypass is introduced. Keep the concurrent-actor case in future reviews.
 The changelog-only push also cancelled its predecessor's develop lifecycle run.
 This remains the documented concurrency behavior: record the final replacement
 run and compare runtime inputs instead of treating cancellation as success.
+
+## 2026-09-08: documentation audit and priority corrections after PR #259
+
+[Changelog PR #259](https://github.com/alpininsight/capi-provider-ssh/pull/259)
+merged as `9ac6495d8a367e15752bf3f62ae26c7a3f960bcb`; it changed only the changelog.
+All eight required PR checks passed. Replacement develop
+[Python CI](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34213039070)
+and [container workflow](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34213039085)
+completed successfully. This establishes source/build acceptance, not a new
+consumer rollout.
+
+The subsequent audit identified inherited gaps despite these green checks:
+
+| Escaped gap / recurring pattern | Concrete improvement | Owner / acceptance |
+|---|---|---|
+| Cleanup could leave an old Ready condition; pause reporting and transition times were not fully exercised | Merge conditions by type, preserve unrelated/history conditions, report pause/Unknown and observed generations; assert API persistence before reset and actual schema admission | Provider/CI: lifecycle and real API tests in the priority-fix PR |
+| The old release retry test mocked a successful no-op release; an actual release/connection error could erase cleanup success | Inject release failure, connection teardown failure and loss of the API response after a committed success; retain the receipt and retry without reset | Provider/CI: stateful negative regressions; extend any future remote operation with post-side-effect failure coverage |
+| Container imports passed while Python distribution metadata stayed at 0.1.0 and license files were absent | Feed the release calculation into both container builds; inspect wheel/sdist license and version, rebuild outside Git/build environment and compare installed runtime identity | Release/CI: required version/artifact and container validation jobs |
+| A CODEOWNERS comment was mistaken for enforceable review, and the named SRE team was invalid | Enable private intake, validate owner access and distinguish the standard review policy from explicitly authorized temporary operation; check actual reviewer availability before enabling a mandatory second-person gate | Repository administrator: valid owner is Peter Rosemann (`@dkdndes`); the 2026-09-08 temporary single-maintainer exception and its restoration trigger are recorded in the maintenance policy |
+| Automation treated all merge blocking as a CI wait | Distinguish required review from unfinished checks; queue normal auto-merge after checks and report review-pending, with no automated approval or bypass | CI maintainer: review-state, changed-head and command-guard regressions |
+
+Code and documentation improvements above describe the current priority-fix
+source. Record its final PR head and completed hosted checks in the PR; do not
+reuse this changelog-only CI result as validation of new provider behavior.
+
+The priority-fix PR initially required a second person's approval although only
+one eligible maintainer existed. Successful CI could not resolve that governance
+deadlock. The owner authorized a temporary exception on 2026-09-08, with mandatory
+review restored when a second eligible maintainer joins, not in September 2026.
+Keep active and standard review profiles versioned, test both automation paths
+and revisit the exception at onboarding and release acceptance. The eight
+technical checks and resolved review threads remain mandatory throughout.

@@ -30,6 +30,7 @@ env:
 jobs:
   validate:
     name: Validate and scan Python container
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -45,6 +46,8 @@ jobs:
         with:
           context: ./python
           file: ./python/Dockerfile
+          build-args: |
+            PROVIDER_VERSION=${{ needs.version.outputs.semver }}
           load: true
           push: false
           tags: capi-provider-ssh-python:ci
@@ -53,6 +56,8 @@ jobs:
           provenance: false
 
       - name: Verify installed runtime and removed package installers
+        env:
+          EXPECTED_PACKAGE_VERSION: ${{ needs.version.outputs.package_version }}
         run: |
           for interpreter in /usr/local/bin/python /app/.venv/bin/python; do
             docker run --rm --entrypoint "$interpreter" capi-provider-ssh-python:ci \
@@ -60,6 +65,8 @@ jobs:
           done
           docker run --rm --entrypoint python capi-provider-ssh-python:ci \
             -c 'import sys, asyncssh, kopf, kubernetes, capi_provider_ssh; print(sys.version)'
+          docker run --rm -e EXPECTED_PACKAGE_VERSION --entrypoint python capi-provider-ssh-python:ci \
+            -c 'import os, importlib.metadata as m, capi_provider_ssh as p; d = m.distribution("capi-provider-ssh"); assert d.version == p.__version__ == os.environ["EXPECTED_PACKAGE_VERSION"]; assert d.metadata["License-Expression"] == "MPL-2.0"; license_file = next(f for f in d.files if str(f).endswith(".dist-info/licenses/LICENSE")); assert "Mozilla Public License" in d.locate_file(license_file).read_text()'
 
       - name: Scan validation image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -77,6 +84,7 @@ jobs:
     outputs:
       major_minor_patch: ${{ steps.gitversion.outputs.MajorMinorPatch }}
       semver: ${{ steps.gitversion.outputs.SemVer }}
+      package_version: ${{ steps.package.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -110,6 +118,22 @@ jobs:
           SEMVER: ${{ steps.gitversion.outputs.SemVer }}
         run: |
           [[ "$SEMVER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+
+      - name: Set up Python for artifact verification
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.14'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Validate package identity, licenses and isolated sdist rebuild
+        id: package
+        env:
+          SEMVER: ${{ steps.gitversion.outputs.SemVer }}
+        run: |
+          python3 python/scripts/check_package.py --version "$SEMVER"
+          python3 -c 'import os, runpy; version = runpy.run_path("python/package_version.py")["normalize_version"](os.environ["SEMVER"]); print(f"version={version}")' >> "$GITHUB_OUTPUT"
 
   build-and-push:
     name: Build and publish Python container
@@ -185,7 +209,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/alpininsight/capi-provider-ssh
             org.opencontainers.image.documentation=https://github.com/alpininsight/capi-provider-ssh/tree/main/docs
             org.opencontainers.image.description=Cluster API infrastructure provider for SSH-reachable hosts
-            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
+            org.opencontainers.image.version=${{ needs.version.outputs.semver }}
 
       - name: Build and push image
         id: build
@@ -193,6 +217,8 @@ jobs:
         with:
           context: ./python
           file: ./python/Dockerfile
+          build-args: |
+            PROVIDER_VERSION=${{ needs.version.outputs.semver }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
