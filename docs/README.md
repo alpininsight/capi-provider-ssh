@@ -10,6 +10,7 @@ use immutable release/source references when reviewing an older deployment.
 |---|---|
 | [Architecture](architecture.md) | Ownership, CAPI boundaries and safety model |
 | [Support matrix](support-matrix.md) | Tested combinations, contract level and evidence gaps |
+| [CAPI contract migration](capi-contract-migration.md) | v1beta1/v1beta2 differences, current implementation and ordered acceptance steps |
 | [API and configuration](api-reference.md) | Resource fields, defaults and controller settings |
 | [RBAC](rbac-requirements.md) | Actual permissions and trust scope |
 | [External etcd](external-etcd.md) | Certificate and kubeadm configuration contract |

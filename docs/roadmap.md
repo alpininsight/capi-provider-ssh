@@ -16,7 +16,7 @@ separate these concerns. They are not a stable third-party driver SDK.
 
 | Area | Work before claiming support | Acceptance owner |
 |---|---|---|
-| CAPI contract evolution | Versioned v1beta2 contract migration, conversion/upgrade plan and upstream compatibility tests | Provider maintainer |
+| CAPI contract evolution | [Current gaps and ordered v1beta2 migration](capi-contract-migration.md), API/upgrade decision and upstream compatibility tests | Provider maintainer |
 | Provider packaging | Versioned clusterctl metadata/components and install/upgrade tests | Release maintainer |
 | Hardware extensions | Shared asset identity, capability/version negotiation, authorization and cross-protocol fencing | Provider / platform maintainers |
 | First OOB driver | Protocol emulator tests, lost-response/crash tests and an explicitly selected physical canary | Driver maintainer |
