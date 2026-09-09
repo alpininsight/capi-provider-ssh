@@ -39,6 +39,16 @@ See [CI governance](ci-governance.md) for routing and external target setup.
 
 ## Failure cases that must remain covered
 
+- Malformed Secret-backed cloud-config, unknown YAML tags, encodings and
+  kubeadm API versions never copy payload content into status, conditions,
+  exception chains or handler logs. Error positions remain available.
+- Delayed Secret/object reads leave heartbeats and another Machine's reconcile
+  runnable. SDK requests carry connect/read timeouts; CAS/missing-object status
+  codes remain available to the lifecycle handlers.
+- Cancellation of queued API work prevents submission. Cancellation after
+  submission holds the caller's lock and capacity until the thread completes,
+  including a lost response after commit; no following remote action starts.
+  Lease work retains capacity when the regular API pool is saturated.
 - An API-denied, missing or recreated CAPI owner cannot authorize bootstrap.
 - Lease read/create/update errors and CAS conflicts cannot enter a host operation;
   loss during work cancels local execution without releasing a new holder's Lease.

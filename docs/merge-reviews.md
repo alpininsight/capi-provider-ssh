@@ -155,3 +155,24 @@ comment, so this record does not require recursively merging its own result.
 Primary sources: [GitVersion Manual Deployment](https://gitversion.net/docs/reference/modes/manual-deployment),
 [Docker registry inspection](https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/)
 and [Docker metadata annotations](https://github.com/docker/metadata-action#annotations).
+
+## 2026-09-09: P1 findings after the v0.4.6 release
+
+Release PR [#273](https://github.com/alpininsight/capi-provider-ssh/pull/273)
+merged as `cc4895e4a75a8fdde89c8c31f7f6463c671ee8e8`. Its source passed
+[Python/Kind CI](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34286092494)
+and publication, but the subsequent review reproduced two P1 failures. The
+existing isolated suite passed 393 tests before the new counterexamples existed.
+
+| Escaped defect / recurring weakness | Implemented prevention | Required follow-up evidence |
+|---|---|---|
+| Secret-backed YAML parser exceptions copied their source line into public Machine status; exception chaining retained it in tracebacks | Report position/field without payload and raise outside the original exception context; exercise malformed YAML, encodings and kubeadm versions through reconcile, status and logging | Keep `test_bootstrap_confidentiality.py` in the required Python lane; inspect the published fix before promotion |
+| Async handlers called the synchronous SDK directly; successful single-handler tests missed operator starvation | Central request timeouts, bounded threaded I/O and separate Lease capacity; preserve caller locks while draining cancelled writes | Keep delayed-read, concurrent-reconcile, queue cancellation and post-commit response-loss tests in `test_api_io.py`; retain the real Kind lifecycle/failover gate |
+| Controller readiness and image publication were confused with workload acceptance | Track provider source/image, consumer digest pin, applied CRDs/RBAC, readiness/peering and an actual workload canary separately | Consumer owner records each layer after the reviewed image is promoted; no workload-lifecycle claim from an empty inventory |
+
+This patch addresses the two P1 findings. The review's cleanup release/reclaim,
+credential-reference rotation during deletion and colliding provider IDs across
+different SSH ports remain separate P2 work. The hardware contract correction
+belongs in `hybrid-hw-foundation`; the CAPI canary definitions and rollout belong
+in `insight-lima-k8s-capi`. Record the correction PR's final checks and merge SHA
+in its follow-up review, rather than claiming a local test is a completed rollout.

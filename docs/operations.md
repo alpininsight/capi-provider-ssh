@@ -39,6 +39,31 @@ availability and an already running remote command may extend recovery.
 
 Source: [Kopf peering](https://docs.kopf.dev/en/stable/peering/).
 
+### Kubernetes SDK execution
+
+Synchronous SDK work runs outside the operator event loop with at most eight
+regular workers. Two additional workers serve host Lease acquire/renew/release,
+so inventory and Secret reads cannot consume their capacity. Each SDK request
+uses a five-second connect and ten-second read timeout; automatic SDK transport
+retries are disabled at startup. Reconciliation handles failures using its
+existing retry and UID/resourceVersion checks. These are per-request limits,
+not a total reconciliation deadline; a guarded helper can make several requests.
+
+Queued work can be cancelled before submission. Once submitted, cancellation
+waits for the thread to finish before releasing the caller's Machine lock or
+worker slot, then propagates without starting the next remote action. A timed-out
+write can already have committed: retry must observe persisted state and retain
+the existing ownership/receipt checks. Thread isolation does not make API outages
+successful operations or establish a fleet-scale recovery SLO.
+
+Bootstrap parser errors report only the field or line/column. Secret payloads,
+parser source excerpts and their exception chains must not reach resource status,
+Kopf events or logs. Inspect the original Secret only through authorized access;
+do not copy it into a diagnostic issue or support bundle.
+
+Sources: [Kopf async handlers](https://docs.kopf.dev/en/stable/async/) and
+[Kubernetes Python client timeouts](https://github.com/kubernetes-client/python/blob/master/examples/watch/timeout-settings.md).
+
 ## Liveness, readiness and the live HA gate
 
 `/healthz` checks the local Kopf event loop. Its `runtime` probe reports whether
@@ -55,7 +80,7 @@ A surviving peer from a previous container process cannot satisfy readiness.
 The standby passes the same checks as the active reconciler; priority does not
 make the standby unready. Explicit non-HA mode still requires CRD API access.
 
-API calls disable automatic retries and use one-second connect/two-second read
+Readiness API calls disable automatic retries and use one-second connect/two-second read
 timeouts. The probe has a ten-second execution budget and fails readiness after
 two consecutive failures. Readiness does not guarantee that every resource
 handler or watch is progressing; the lifecycle/failover tests and observed
