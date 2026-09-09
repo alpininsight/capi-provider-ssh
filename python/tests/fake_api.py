@@ -53,7 +53,7 @@ class ObjectStore:
     def secret(self, name, value, key="value", namespace="test"):
         self.secrets[namespace, name] = SimpleNamespace(data={key: base64.b64encode(value.encode()).decode()})
 
-    def read_namespaced_secret(self, name, namespace):
+    def read_namespaced_secret(self, name, namespace, **kwargs):
         return self.secrets[namespace, name]
 
     def get_namespaced_custom_object(self, group, version, namespace, plural, name, **kwargs):

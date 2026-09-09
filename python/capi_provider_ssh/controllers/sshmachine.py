@@ -25,6 +25,7 @@ import kubernetes
 import yaml
 
 from capi_provider_ssh import API_GROUP, API_VERSION
+from capi_provider_ssh.api_io import request, run_api
 from capi_provider_ssh.conditions import patch_conditions, report_pause
 from capi_provider_ssh.contracts import is_paused, persist_machine_status, read_known_hosts
 from capi_provider_ssh.inventory import bind_machine, set_host_phase
@@ -184,7 +185,7 @@ def _get_machine_owner_ref(owner_references: list[dict] | None) -> dict | None:
 async def _read_ssh_key(namespace: str, secret_name: str, secret_key: str = "value") -> str:
     """Read SSH private key from a Kubernetes Secret."""
     api = kubernetes.client.CoreV1Api()
-    secret = api.read_namespaced_secret(name=secret_name, namespace=namespace)
+    secret = await run_api(request, api.read_namespaced_secret, name=secret_name, namespace=namespace)
     if secret.data is None or secret_key not in secret.data:
         raise kopf.PermanentError(f"Secret {namespace}/{secret_name} missing key '{secret_key}'")
     return base64.b64decode(secret.data[secret_key]).decode("utf-8")
@@ -198,7 +199,9 @@ async def _read_bootstrap_data(namespace: str, machine_name: str) -> str | None:
     """
     api = kubernetes.client.CustomObjectsApi()
     try:
-        machine = api.get_namespaced_custom_object(
+        machine = await run_api(
+            request,
+            api.get_namespaced_custom_object,
             group="cluster.x-k8s.io",
             version="v1beta1",
             namespace=namespace,
@@ -216,7 +219,7 @@ async def _read_bootstrap_data(namespace: str, machine_name: str) -> str | None:
 
     core_api = kubernetes.client.CoreV1Api()
     try:
-        secret = core_api.read_namespaced_secret(name=bootstrap_ref, namespace=namespace)
+        secret = await run_api(request, core_api.read_namespaced_secret, name=bootstrap_ref, namespace=namespace)
     except kubernetes.client.ApiException as e:
         if e.status == 404:
             return None
@@ -231,7 +234,7 @@ async def _read_bootstrap_data(namespace: str, machine_name: str) -> str | None:
 async def _read_secret_value(namespace: str, secret_name: str, secret_key: str = "value") -> str:
     """Read arbitrary secret data as UTF-8 text."""
     api = kubernetes.client.CoreV1Api()
-    secret = api.read_namespaced_secret(name=secret_name, namespace=namespace)
+    secret = await run_api(request, api.read_namespaced_secret, name=secret_name, namespace=namespace)
     if secret.data is None or secret_key not in secret.data:
         raise kopf.PermanentError(f"Secret {namespace}/{secret_name} missing key '{secret_key}'")
     return base64.b64decode(secret.data[secret_key]).decode("utf-8")
@@ -313,7 +316,7 @@ def _set_kubeadm_args(doc: dict, parent: dict, field: str, desired: dict[str, st
             raise kopf.PermanentError(f"kubeadm v1beta3 {field} must be a mapping")
         args.update(desired)
     else:
-        raise kopf.PermanentError(f"Unsupported kubeadm configuration API: {version}")
+        raise kopf.PermanentError("Unsupported kubeadm configuration API; expected v1beta3 or v1beta4")
     return before != parent[field]
 
 
@@ -421,10 +424,18 @@ def _detect_bootstrap_format(bootstrap_data: str) -> str:
 
 def _parse_cloud_config(bootstrap_data: str) -> dict:
     """Parse and validate a cloud-config payload."""
+    error_message = None
     try:
         config = yaml.safe_load(bootstrap_data) or {}
     except yaml.YAMLError as e:
-        raise kopf.PermanentError(f"bootstrap cloud-config YAML is invalid: {e}") from e
+        error_message = "bootstrap cloud-config YAML is invalid"
+        mark = getattr(e, "problem_mark", None)
+        if mark is not None:
+            error_message += f" at line {mark.line + 1}, column {mark.column + 1}"
+    if error_message is not None:
+        # Parser exceptions contain source snippets from the Secret. Do not
+        # retain them in the error text, cause or context exposed by Kopf.
+        raise kopf.PermanentError(error_message)
 
     if not isinstance(config, dict):
         raise kopf.PermanentError("bootstrap cloud-config must be a mapping")
@@ -487,14 +498,15 @@ def _decode_cloud_write_file_content(entry: dict, index: int) -> str:
         return content
     if normalized in {"b64", "base64"}:
         try:
-            return base64.b64decode(content).decode("utf-8")
-        except Exception as e:
-            raise kopf.PermanentError(
-                f"bootstrap cloud-config write_files[{index}] has invalid base64 content: {e}",
-            ) from e
+            return base64.b64decode("".join(content.split()), validate=True).decode("utf-8")
+        except ValueError:
+            pass
+        raise kopf.PermanentError(
+            f"bootstrap cloud-config write_files[{index}] has invalid base64 or UTF-8 content",
+        )
 
     raise kopf.PermanentError(
-        f"bootstrap cloud-config write_files[{index}] encoding '{encoding}' is unsupported",
+        f"bootstrap cloud-config write_files[{index}] encoding is unsupported; expected text or base64",
     )
 
 
@@ -1036,7 +1048,8 @@ def _acquire_distributed_reconcile_lock(namespace: str, name: str) -> bool:
     ttl_seconds = max(30, SSHMACHINE_DISTRIBUTED_LOCK_TTL_SECONDS)
 
     for _ in range(5):
-        obj = api.get_namespaced_custom_object(
+        obj = request(
+            api.get_namespaced_custom_object,
             group=API_GROUP,
             version=API_VERSION,
             namespace=namespace,
@@ -1066,7 +1079,8 @@ def _acquire_distributed_reconcile_lock(namespace: str, name: str) -> bool:
             },
         }
         try:
-            api.patch_namespaced_custom_object(
+            request(
+                api.patch_namespaced_custom_object,
                 group=API_GROUP,
                 version=API_VERSION,
                 namespace=namespace,
@@ -1093,7 +1107,8 @@ def _release_distributed_reconcile_lock(namespace: str, name: str) -> bool:
     api = kubernetes.client.CustomObjectsApi()
     for _ in range(5):
         try:
-            obj = api.get_namespaced_custom_object(
+            obj = request(
+                api.get_namespaced_custom_object,
                 group=API_GROUP,
                 version=API_VERSION,
                 namespace=namespace,
@@ -1127,7 +1142,8 @@ def _release_distributed_reconcile_lock(namespace: str, name: str) -> bool:
             },
         }
         try:
-            api.patch_namespaced_custom_object(
+            request(
+                api.patch_namespaced_custom_object,
                 group=API_GROUP,
                 version=API_VERSION,
                 namespace=namespace,
@@ -1196,7 +1212,8 @@ def _read_current_sshmachine(namespace: str, name: str) -> dict | None:
     """Read the latest SSHMachine object state from the API server."""
     api = kubernetes.client.CustomObjectsApi()
     try:
-        return api.get_namespaced_custom_object(
+        return request(
+            api.get_namespaced_custom_object,
             group=API_GROUP,
             version=API_VERSION,
             namespace=namespace,
@@ -1213,12 +1230,12 @@ async def _ensure_bootstrap_ownership(conn, binding, uid, namespace, name, statu
     ownership = status.get("bootstrapOwnership") or {"machineUID": uid, "startedAt": _now_iso(), **binding}
     if ownership.get("machineUID") != uid:
         raise kopf.PermanentError("Bootstrap ownership belongs to a different Machine UID")
-    persist_machine_status(namespace, name, uid, {"bootstrapOwnership": ownership})
+    await run_api(persist_machine_status, namespace, name, uid, {"bootstrapOwnership": ownership})
     patch.status["bootstrapOwnership"] = ownership
     claim_result = await conn.execute(owned_command(uid, "true", claim=True))
     if not claim_result.success:
         if claim_result.exit_code == 78:
-            set_host_phase(binding, name, namespace, uid, "Quarantined", "RemoteOwnershipMismatch")
+            await run_api(set_host_phase, binding, name, namespace, uid, "Quarantined", "RemoteOwnershipMismatch")
             raise kopf.PermanentError("Remote host identity is not owned by this Machine UID")
         raise kopf.TemporaryError("Remote host operation is still busy", delay=15)
 
@@ -1228,7 +1245,9 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
     logger.info("SSHMachine %s/%s reconciling", namespace, name)
 
     # Check pause
-    if report_pause(patch, status, meta, lambda: is_paused(spec, meta, namespace)) or meta.get("deletionTimestamp"):
+    if await run_api(report_pause, patch, status, meta, lambda: is_paused(spec, meta, namespace)) or meta.get(
+        "deletionTimestamp"
+    ):
         logger.info("SSHMachine %s/%s is paused, skipping", namespace, name)
         return
 
@@ -1290,7 +1309,7 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
 
     # Persist the UID-bound target before any bootstrap side effects.
     uid = meta.get("uid")
-    binding = bind_machine(spec, status, name, namespace, uid, patch)
+    binding = await run_api(bind_machine, spec, status, name, namespace, uid, patch)
 
     # At this point, address must be set (either direct or from host claim)
     address = patch.spec.get("address", spec.get("address"))
@@ -1497,7 +1516,7 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
 
     try:
         ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
-        known_hosts = read_known_hosts(namespace, binding)
+        known_hosts = await run_api(read_known_hosts, namespace, binding)
     except kopf.PermanentError:
         raise
     except Exception as e:
@@ -1601,10 +1620,12 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
                 address=address, port=port, user=user, key=ssh_key, known_hosts=known_hosts
             ) as conn,
         ):
-            latest = _read_current_sshmachine(namespace, name)
+            latest = await run_api(_read_current_sshmachine, namespace, name)
             if not latest or latest["metadata"].get("uid") != uid:
                 raise kopf.TemporaryError("Machine identity changed before bootstrap", delay=15)
-            if is_paused(latest["spec"], latest["metadata"], namespace) or latest["metadata"].get("deletionTimestamp"):
+            if await run_api(is_paused, latest["spec"], latest["metadata"], namespace) or latest["metadata"].get(
+                "deletionTimestamp"
+            ):
                 return
             await operation.check()
             await _ensure_bootstrap_ownership(conn, binding, uid, namespace, name, status, patch)
@@ -1619,17 +1640,19 @@ async def _sshmachine_reconcile_impl(spec, status, name, namespace, meta, patch,
             await operation.check()
             await conn.upload(bootstrap_script, bootstrap_path)
             await operation.check()
-            latest = _read_current_sshmachine(namespace, name)
+            latest = await run_api(_read_current_sshmachine, namespace, name)
             if not latest or latest["metadata"].get("uid") != uid:
                 raise kopf.TemporaryError("Machine identity changed before bootstrap execution", delay=15)
-            if is_paused(latest["spec"], latest["metadata"], namespace) or latest["metadata"].get("deletionTimestamp"):
+            if await run_api(is_paused, latest["spec"], latest["metadata"], namespace) or latest["metadata"].get(
+                "deletionTimestamp"
+            ):
                 return
             result = await durable_bootstrap(
                 conn, uid, bootstrap_path, _bootstrap_execution_command(bootstrap_path), timeout=DEFAULT_COMMAND_TIMEOUT
             )
 
             if not result.success:
-                set_host_phase(binding, name, namespace, uid, "Quarantined", "BootstrapFailed")
+                await run_api(set_host_phase, binding, name, namespace, uid, "Quarantined", "BootstrapFailed")
                 failure_reason, failure_phase, failure_message, stderr_excerpt = _classify_bootstrap_failure(
                     result,
                     bootstrap_script,
@@ -1825,13 +1848,13 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
 
     try:
         async with lock:
-            _acquire_distributed_lock_or_requeue(namespace, name, "reconcile")
+            await run_api(_acquire_distributed_lock_or_requeue, namespace, name, "reconcile")
             try:
                 # Refresh live object state when an event UID is available to reject stale timer/handler events.
                 event_uid = meta.get("uid")
                 if event_uid:
                     try:
-                        latest = _read_current_sshmachine(namespace, name)
+                        latest = await run_api(_read_current_sshmachine, namespace, name)
                     except Exception as e:
                         raise kopf.TemporaryError(
                             f"failed to refresh live SSHMachine state under reconcile lock: {e}",
@@ -1883,7 +1906,7 @@ async def sshmachine_reconcile(spec, status, name, namespace, meta, patch, **_kw
                 if not meta.get("deletionTimestamp"):
                     await _reconcile_reboot(spec, status, name, namespace, meta, patch)
             finally:
-                _release_distributed_lock_with_logging(namespace, name, "reconcile")
+                await run_api(_release_distributed_lock_with_logging, namespace, name, "reconcile")
     finally:
         _cleanup_reconcile_lock(namespace, name, lock)
 

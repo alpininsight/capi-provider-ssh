@@ -11,6 +11,7 @@ import os
 import kopf
 
 from capi_provider_ssh import API_GROUP, API_VERSION
+from capi_provider_ssh.api_io import run_api
 from capi_provider_ssh.contracts import is_paused, read_known_hosts
 from capi_provider_ssh.controllers.sshmachine import _now_iso, _read_ssh_key
 from capi_provider_ssh.ssh import SSHClient
@@ -24,7 +25,7 @@ SSHHOST_PROBE_TIMEOUT = int(os.environ.get("SSHHOST_PROBE_TIMEOUT", "10"))
 @kopf.timer(API_GROUP, API_VERSION, "sshhosts", interval=SSHHOST_PROBE_INTERVAL, initial_delay=10)
 async def sshhost_probe(spec, status, name, namespace, patch, **_kwargs):
     """Periodically probe SSH connectivity on an SSHHost."""
-    if is_paused(spec, _kwargs.get("meta") or {}, namespace):
+    if await run_api(is_paused, spec, _kwargs.get("meta") or {}, namespace):
         return
     address = spec.get("address")
     port = spec.get("port", 22)
@@ -43,7 +44,7 @@ async def sshhost_probe(spec, status, name, namespace, patch, **_kwargs):
 
     try:
         ssh_key = await _read_ssh_key(namespace, secret_name, secret_key)
-        known_hosts = read_known_hosts(namespace, spec)
+        known_hosts = await run_api(read_known_hosts, namespace, spec)
     except Exception as e:
         logger.warning("SSHHost %s/%s failed to read SSH key for probe: %s", namespace, name, e)
         patch.status["ready"] = False

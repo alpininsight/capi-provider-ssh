@@ -13,11 +13,12 @@ from contextlib import asynccontextmanager, suppress
 import kopf
 import kubernetes
 
+from capi_provider_ssh.api_io import request, run_coordination
+
 OWNER_PATH = "/var/lib/capi-provider-ssh/owner"
 REMOTE_LOCK = "/var/lib/capi-provider-ssh-operation.lock"
 LEASE_NAMESPACE = os.environ.get("POD_NAMESPACE", "capi-provider-ssh-system")
 LEASE_SECONDS = 60
-API_TIMEOUT = (5, 15)
 
 
 class HostLease:
@@ -30,7 +31,7 @@ class HostLease:
         self.api = kubernetes.client.CoordinationV1Api()
 
     def _read(self):
-        return self.api.read_namespaced_lease(self.name, LEASE_NAMESPACE, _request_timeout=API_TIMEOUT)
+        return request(self.api.read_namespaced_lease, self.name, LEASE_NAMESPACE)
 
     def acquire(self) -> bool:
         now = datetime.datetime.now(datetime.UTC)
@@ -62,9 +63,9 @@ class HostLease:
         )
         try:
             if current:
-                self.api.replace_namespaced_lease(self.name, LEASE_NAMESPACE, lease, _request_timeout=API_TIMEOUT)
+                request(self.api.replace_namespaced_lease, self.name, LEASE_NAMESPACE, lease)
             else:
-                self.api.create_namespaced_lease(LEASE_NAMESPACE, lease, _request_timeout=API_TIMEOUT)
+                request(self.api.create_namespaced_lease, LEASE_NAMESPACE, lease)
         except kubernetes.client.ApiException as exc:
             if exc.status == 409:
                 return False
@@ -76,11 +77,11 @@ class HostLease:
         if current.spec.holder_identity != self.holder:
             return False
         current.spec.renew_time = datetime.datetime.now(datetime.UTC)
-        self.api.replace_namespaced_lease(self.name, LEASE_NAMESPACE, current, _request_timeout=API_TIMEOUT)
+        request(self.api.replace_namespaced_lease, self.name, LEASE_NAMESPACE, current)
         return True
 
     async def check(self) -> None:
-        if not await asyncio.to_thread(self.renew):
+        if not await run_coordination(self.renew):
             raise kopf.TemporaryError("Host operation Lease was lost", delay=15)
 
     def release(self) -> None:
@@ -88,14 +89,14 @@ class HostLease:
         if current.spec.holder_identity != self.holder:
             return
         current.spec.holder_identity = None
-        self.api.replace_namespaced_lease(self.name, LEASE_NAMESPACE, current, _request_timeout=API_TIMEOUT)
+        request(self.api.replace_namespaced_lease, self.name, LEASE_NAMESPACE, current)
 
 
 @asynccontextmanager
 async def host_operation(binding: dict, machine_uid: str):
     lease = HostLease(binding["address"], binding.get("port", 22), machine_uid)
     try:
-        acquired = await asyncio.to_thread(lease.acquire)
+        acquired = await run_coordination(lease.acquire)
     except Exception as exc:
         raise kopf.TemporaryError("Cannot acquire host operation Lease", delay=15) from exc
     if not acquired:
@@ -111,7 +112,7 @@ async def host_operation(binding: dict, machine_uid: str):
                 await asyncio.wait_for(stopped.wait(), LEASE_SECONDS / 4)
             except TimeoutError:
                 try:
-                    if await asyncio.to_thread(lease.renew):
+                    if await run_coordination(lease.renew):
                         continue
                 except Exception:
                     pass
@@ -131,7 +132,7 @@ async def host_operation(binding: dict, machine_uid: str):
         await renewal
         # Failure to release is safe: only the expiring holder remains recorded.
         with suppress(Exception):
-            await asyncio.to_thread(lease.release)
+            await run_coordination(lease.release)
 
 
 def owned_command(
