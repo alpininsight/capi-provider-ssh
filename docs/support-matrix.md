@@ -55,6 +55,8 @@ under review; historical counts are not a substitute.
 | Python distribution metadata | Release-derived for versioned builds | Wheel/sdist and isolated rebuild retain version, MPL-2.0 license file and project URLs; unversioned source explicitly identifies itself as such; no PyPI publication claim |
 | Reboot remediation | Implemented, in-band SSH | Completion requires changed boot ID; Unknown is not automatically replayed and blocks unresolved cleanup |
 | Controller HA | Two replicas with mandatory peering, host Leases and remote fencing | Requires eligible placement and a healthy management API/network; no end-to-end recovery SLO |
+| SDK responsiveness | Bounded worker execution with per-request connect/read timeouts in this source | Slow API and cancellation regression tests; dedicated Lease capacity, preserved CAS semantics; fleet scale remains uncertified |
+| Bootstrap error confidentiality | Payload-free parser/encoding diagnostics in this source | Reconcile-level synthetic Secret tests cover status, conditions, logs and exception chains |
 | Readiness / liveness | Authenticated API and own current-process heartbeat / local HTTP health | Both active and standby are checked; not proof of every watch/handler |
 | Controller memory | 128 MiB request / 512 MiB limit, Burstable | Lightweight probe and overlapping-probe/OOM tests; no VPA installation or automatic resizing |
 | SSH trust | Required verified host keys/CA reference | Real valid/changed/missing/revoked-key transport tests; host authorization and key rotation remain operational responsibilities |

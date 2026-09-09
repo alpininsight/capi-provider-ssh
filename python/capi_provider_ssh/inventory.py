@@ -8,6 +8,7 @@ import kopf
 import kubernetes
 
 from capi_provider_ssh import API_GROUP, API_VERSION
+from capi_provider_ssh.api_io import request
 from capi_provider_ssh.contracts import get_object, persist_machine_status
 
 CONNECTION_FIELDS = ("address", "port", "user", "sshKeyRef", "sshHostKeyRef")
@@ -45,8 +46,14 @@ def _host_patch(host: dict, namespace: str, body: dict, *, status: bool = False)
     body["metadata"] = {"uid": meta["uid"], "resourceVersion": meta["resourceVersion"]}
     api = kubernetes.client.CustomObjectsApi()
     method = api.patch_namespaced_custom_object_status if status else api.patch_namespaced_custom_object
-    return method(
-        group=API_GROUP, version=API_VERSION, namespace=namespace, plural="sshhosts", name=meta["name"], body=body
+    return request(
+        method,
+        group=API_GROUP,
+        version=API_VERSION,
+        namespace=namespace,
+        plural="sshhosts",
+        name=meta["name"],
+        body=body,
     )
 
 
@@ -86,8 +93,12 @@ def release_host(binding: dict, name: str, namespace: str, uid: str) -> None:
 
 def recover_unstarted_claim(name: str, namespace: str, uid: str) -> dict:
     """Recover only an existing UID claim after a crash, never select another host."""
-    hosts = kubernetes.client.CustomObjectsApi().list_namespaced_custom_object(
-        group=API_GROUP, version=API_VERSION, namespace=namespace, plural="sshhosts"
+    hosts = request(
+        kubernetes.client.CustomObjectsApi().list_namespaced_custom_object,
+        group=API_GROUP,
+        version=API_VERSION,
+        namespace=namespace,
+        plural="sshhosts",
     )["items"]
     own = [host for host in hosts if same_consumer(host.get("spec", {}).get("consumerRef"), name, namespace, uid)]
     if len(own) > 1:
@@ -104,7 +115,8 @@ def recover_unstarted_claim(name: str, namespace: str, uid: str) -> dict:
 
 
 def _select_host(spec: dict, status: dict, name: str, namespace: str, uid: str) -> dict:
-    hosts = kubernetes.client.CustomObjectsApi().list_namespaced_custom_object(
+    hosts = request(
+        kubernetes.client.CustomObjectsApi().list_namespaced_custom_object,
         group=API_GROUP,
         version=API_VERSION,
         namespace=namespace,
@@ -199,7 +211,8 @@ def bind_machine(spec: dict, status: dict, name: str, namespace: str, uid: str, 
         selected = {field: binding[field] for field in CONNECTION_FIELDS}
         if binding.get("hostRef"):
             selected["hostRef"] = binding["hostRef"]
-        kubernetes.client.CustomObjectsApi().patch_namespaced_custom_object(
+        request(
+            kubernetes.client.CustomObjectsApi().patch_namespaced_custom_object,
             group=API_GROUP,
             version=API_VERSION,
             namespace=namespace,

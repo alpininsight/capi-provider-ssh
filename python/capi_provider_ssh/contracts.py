@@ -8,6 +8,7 @@ import kopf
 import kubernetes
 
 from capi_provider_ssh import API_GROUP, API_VERSION
+from capi_provider_ssh.api_io import request
 from capi_provider_ssh.conditions import merge_conditions
 
 PAUSED_ANNOTATION = "cluster.x-k8s.io/paused"
@@ -15,7 +16,8 @@ CLUSTER_LABEL = "cluster.x-k8s.io/cluster-name"
 
 
 def get_object(plural: str, namespace: str, name: str, *, group=API_GROUP, version=API_VERSION) -> dict:
-    return kubernetes.client.CustomObjectsApi().get_namespaced_custom_object(
+    return request(
+        kubernetes.client.CustomObjectsApi().get_namespaced_custom_object,
         group=group,
         version=version,
         namespace=namespace,
@@ -75,7 +77,8 @@ def persist_machine_status(namespace: str, name: str, uid: str, changes: dict) -
     if "conditions" in changes:
         changes["conditions"] = merge_conditions(current.get("status", {}).get("conditions", []), changes["conditions"])
     try:
-        return kubernetes.client.CustomObjectsApi().patch_namespaced_custom_object_status(
+        return request(
+            kubernetes.client.CustomObjectsApi().patch_namespaced_custom_object_status,
             group=API_GROUP,
             version=API_VERSION,
             namespace=namespace,
@@ -98,7 +101,7 @@ def read_known_hosts(namespace: str, spec: dict) -> str:
     if not ref.get("name"):
         raise kopf.PermanentError("spec.sshHostKeyRef.name is required; automatic host-key trust is disabled")
     key = ref.get("key", "known_hosts")
-    secret = kubernetes.client.CoreV1Api().read_namespaced_secret(name=ref["name"], namespace=namespace)
+    secret = request(kubernetes.client.CoreV1Api().read_namespaced_secret, name=ref["name"], namespace=namespace)
     if not secret.data or not secret.data.get(key):
         raise kopf.PermanentError("Host trust Secret does not contain the configured known_hosts entry")
     return base64.b64decode(secret.data[key], validate=True).decode("utf-8")

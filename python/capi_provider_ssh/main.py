@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime
 
 import kopf
+import kubernetes
 
 # Import controllers to register their handlers with kopf
 import capi_provider_ssh.controllers.sshcluster  # noqa: F401
@@ -33,6 +34,11 @@ def configure(settings: kopf.OperatorSettings, **_kwargs):
     settings.watching.server_timeout = 270
     settings.watching.client_timeout = 300
     load_api_config()
+    # Reconciliation owns retries. Hidden urllib3 retries extend the request
+    # budget and can outlive the Lease protecting a remote operation.
+    configuration = kubernetes.client.Configuration.get_default_copy()
+    configuration.retries = 0
+    kubernetes.client.Configuration.set_default(configuration)
     ha = os.environ.get("SSH_PROVIDER_HA", "true").lower() == "true"
     if ha:
         identity = os.environ.get("POD_UID") or str(uuid.uuid4())
