@@ -1,5 +1,14 @@
 FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS base
 
+# Apply Trixie security fixes not yet included in the pinned upstream image.
+RUN apt-get update && \
+    apt-get install --yes --no-install-recommends --only-upgrade \
+        gzip=1.13-1+deb13u1 \
+        libpcre2-8-0=10.46-1~deb13u2 \
+        libsqlite3-0=3.46.1-7+deb13u2 \
+        perl-base=5.40.1-6+deb13u1 && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install uv for fast dependency resolution
 COPY --from=ghcr.io/astral-sh/uv:latest@sha256:8b940d3a9d65bed080436972241af2e21c84b5e8c9193f7014ed71479ee795ff /uv /usr/local/bin/uv
 
