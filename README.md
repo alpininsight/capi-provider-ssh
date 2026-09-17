@@ -29,6 +29,17 @@ Read the [support matrix](docs/support-matrix.md) before choosing versions or
 planning production use. Tested behavior is distinct from a support SLA, hardware
 certification or a completed workload rollout in a particular environment.
 
+## What this provider is and how to use it
+
+| Question | Documentation |
+|---|---|
+| What is the provider? | This [README](README.md): a Python-based CAPI infrastructure provider, not a VM or OS provisioner. |
+| Where does it run? | [Architecture](docs/architecture.md): two controller replicas in the management cluster. |
+| How is it installed? | [Installation](docs/installation.md): CRDs, RBAC, Deployment/PDB and GitOps delivery order. |
+| How is it used? | [API and configuration reference](docs/api-reference.md): `SSHHost`, `SSHCluster`, `SSHMachine` and the CAPI ownership chain. |
+| How is it delivered? | [Container delivery](CONTAINER_IMAGES.md): GHCR image, release tag and digest pinning. |
+| What is out of scope? | [Architecture](docs/architecture.md): OS installation, hardware power management, cloud VM creation and a plugin runtime. |
+
 ## Start here
 
 | Task | Guide |
