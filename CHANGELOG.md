@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **deps-dev:** Bump ruff in /python in the version-updates group
 
+### Testing
+
+- Diagnose CAPI lifecycle clone races
+
 ## [0.4.3] - 2026-09-08
 
 ### Bug Fixes
