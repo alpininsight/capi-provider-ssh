@@ -11,23 +11,69 @@ import asyncssh
 import kubernetes
 
 from capi_provider_ssh.controllers.sshmachine import _sanitize_bootstrap_diagnostic_text
+from tests.kind import diagnostics
 
 SSH_GROUP = "infrastructure.alpininsight.ai"
 CAPI_GROUP = "cluster.x-k8s.io"
+
+
+def referenced_machine_conditions_current(capi_machines, ssh_machines, expected_count=4):
+    """Check conditions on the SSHMachines that CAPI currently owns.
+
+    CAPI may briefly retain an unadopted infrastructure-template clone while a
+    MachineSet reconciles. Such a clone has no CAPI Machine reference and must
+    neither satisfy nor invalidate the admission-condition contract.
+    """
+    references = {}
+    for capi_machine in capi_machines:
+        ref = capi_machine.get("spec", {}).get("infrastructureRef", {})
+        name = ref.get("name") if ref.get("kind") == "SSHMachine" else None
+        uid = capi_machine.get("metadata", {}).get("uid")
+        if not isinstance(name, str) or not isinstance(uid, str) or name in references:
+            return False
+        references[name] = uid
+    if len(references) != expected_count:
+        return False
+
+    by_name = {item.get("metadata", {}).get("name"): item for item in ssh_machines}
+    if not all(name in by_name for name in references):
+        return False
+    for name, owner_uid in references.items():
+        machine = by_name[name]
+        owners = machine.get("metadata", {}).get("ownerReferences", [])
+        if not any(owner.get("kind") == "Machine" and owner.get("uid") == owner_uid for owner in owners):
+            return False
+        values = {item.get("type"): item for item in machine.get("status", {}).get("conditions", [])}
+        ready = values.get("Ready", {})
+        paused = values.get("Paused", {})
+        if (
+            ready.get("status") != "True"
+            or ready.get("observedGeneration") != machine.get("metadata", {}).get("generation")
+            or paused.get("status") != "False"
+        ):
+            return False
+    return True
 
 
 def run(*args, input=None):
     return subprocess.run(args, input=input, text=True, capture_output=True, check=True, timeout=180).stdout
 
 
-def eventually(description, check, timeout=180):
+def eventually(description, check, timeout=180, *, diagnose=None):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         value = check()
         if value:
             return value
         time.sleep(2)
-    raise AssertionError(f"Timed out: {description}")
+    detail = ""
+    if diagnose is not None:
+        try:
+            detail = json.dumps(diagnose(), sort_keys=True)
+        except Exception:
+            # Diagnostics must preserve the failed assertion without leaking exception bodies.
+            detail = '{"collectionError": "DiagnosticCollectionFailed"}'
+    raise AssertionError(f"Timed out: {description}" + (f"\n{detail}" if detail else ""))
 
 
 class Runtime:
@@ -419,9 +465,117 @@ class Runtime:
             timeout=600,
         )
 
+    def lifecycle_diagnostics(self):
+        try:
+            return self._collect_lifecycle_diagnostics()
+        except Exception:
+            # A malformed diagnostic response must not leak its body or interrupt finalizer cleanup.
+            return {
+                "snapshotComplete": False,
+                "collectionErrors": [{"source": "projection", "errorClass": "DiagnosticCollectionFailed"}],
+            }
+
+    def _collect_lifecycle_diagnostics(self):
+        result = {
+            "resources": [],
+            "events": [],
+            "controllerErrors": [],
+            "collectionErrors": [],
+            "limits": {
+                "itemsPerList": 100,
+                "pods": 4,
+                "logTailLines": 500,
+                "logBytesPerPod": 65536,
+            },
+        }
+
+        def read(source, operation):
+            try:
+                return operation()
+            except Exception as exc:
+                # Only fixed failure codes and numeric HTTP status, never response/log bodies.
+                failure = {"source": source, "errorClass": "CollectionFailed"}
+                if isinstance(exc, kubernetes.client.exceptions.ApiException) and type(exc.status) is int:
+                    failure["httpStatus"] = exc.status
+                result["collectionErrors"].append(failure)
+                return None
+
+        def items(source, response):
+            if response is None:
+                return []
+            if response.get("metadata", {}).get("continue"):
+                result["collectionErrors"].append({"source": source, "errorClass": "ListTruncated"})
+            return response.get("items", [])
+
+        for group, plural in (
+            (SSH_GROUP, "sshmachines"),
+            (CAPI_GROUP, "machines"),
+            (CAPI_GROUP, "machinesets"),
+            (CAPI_GROUP, "machinedeployments"),
+        ):
+            response = read(
+                plural,
+                lambda group=group, plural=plural: self.api.list_namespaced_custom_object(
+                    group,
+                    "v1beta1",
+                    self.namespace,
+                    plural,
+                    limit=100,
+                    _request_timeout=(3, 10),
+                ),
+            )
+            result["resources"].extend(diagnostics.resource(item) for item in items(plural, response))
+
+        events = read(
+            "events",
+            lambda: self.core.api_client.sanitize_for_serialization(
+                self.core.list_namespaced_event(self.namespace, limit=100, _request_timeout=(3, 10))
+            ),
+        )
+        result["events"] = [
+            projected for item in items("events", events) if (projected := diagnostics.event(item, self.namespace))
+        ]
+        pods = read(
+            "capiControllerPods",
+            lambda: self.core.api_client.sanitize_for_serialization(
+                self.core.list_namespaced_pod(
+                    "capi-system",
+                    label_selector="cluster.x-k8s.io/provider=cluster-api,control-plane=controller-manager",
+                    limit=4,
+                    _request_timeout=(3, 10),
+                )
+            ),
+        )
+        controller_pods = items("capiControllerPods", pods)
+        if pods is not None and not controller_pods:
+            result["collectionErrors"].append({"source": "capiControllerPods", "errorClass": "NoControllerPods"})
+        for pod in controller_pods:
+            ref = diagnostics.reference({**pod["metadata"], "kind": "Pod"})
+            output = read(
+                "capiControllerLog",
+                lambda ref=ref: self.core.read_namespaced_pod_log(
+                    ref["name"],
+                    "capi-system",
+                    container="manager",
+                    tail_lines=500,
+                    limit_bytes=65536,
+                    _request_timeout=(3, 10),
+                ),
+            )
+            if output is not None:
+                result["controllerErrors"].append(
+                    {
+                        "pod": ref,
+                        "observations": diagnostics.controller_errors(output, result["resources"]),
+                    }
+                )
+        result["snapshotComplete"] = not result["collectionErrors"]
+        return result
+
     def snapshot(self, directory):
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
+        (directory / "lifecycle-diagnostics.json").write_text(json.dumps(self.lifecycle_diagnostics(), indent=2))
         # Public diagnostic state only: no Secret payloads or kubeconfigs in test artifacts.
         for group, plural in (
             (SSH_GROUP, "sshmachines"),
