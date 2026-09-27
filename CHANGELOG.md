@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **context7:** Keep indexing rule within schema length limit
 - **controller:** Protect bootstrap errors and isolate Kubernetes API I/O
 - **container:** Apply scoped Debian security updates
+- **license:** Let automated license detection recognise MPL-2.0
 
 ### Documentation
 
