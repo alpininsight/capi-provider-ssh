@@ -159,7 +159,7 @@ test kubeconfig. Unit success alone does not certify a release or live rollout.
 
 ## License and contribution
 
-[Mozilla Public License 2.0](LICENSE). Contributions follow [Conventional Commits](https://www.conventionalcommits.org/)
+[Mozilla Public License 2.0](LICENSE), copyright in [NOTICE](NOTICE). Contributions follow [Conventional Commits](https://www.conventionalcommits.org/)
 and the [Developer Certificate of Origin](DCO); sign commits with `git commit -s`.
 Create a working branch from current `develop` and submit a PR back to `develop`.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for review and documentation requirements.
