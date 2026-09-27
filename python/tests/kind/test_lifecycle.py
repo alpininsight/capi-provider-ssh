@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from capi_provider_ssh.operations import owned_command
-from tests.kind.runtime import CAPI_GROUP, SSH_GROUP, Runtime, eventually, run
+from tests.kind.runtime import CAPI_GROUP, SSH_GROUP, Runtime, eventually, referenced_machine_conditions_current, run
 
 pytestmark = [pytest.mark.kind, pytest.mark.timeout(1800)]
 
@@ -31,18 +31,16 @@ def test_capi_lifecycle_and_inflight_provider_failover():
         rt.ready_nodes(4)
 
         def current_condition_generations():
-            machines = rt.machines()
-            for machine in machines:
-                values = {item["type"]: item for item in machine["status"]["conditions"]}
-                if (
-                    values["Ready"]["status"] != "True"
-                    or values["Ready"].get("observedGeneration") != machine["metadata"]["generation"]
-                    or values["Paused"]["status"] != "False"
-                ):
-                    return False
-            return len(machines) == 4
+            capi_machines = rt.api.list_namespaced_custom_object(CAPI_GROUP, "v1beta1", rt.namespace, "machines")[
+                "items"
+            ]
+            return referenced_machine_conditions_current(capi_machines, rt.machines())
 
-        eventually("Machine condition generations survive API admission", current_condition_generations)
+        eventually(
+            "Machine condition generations survive API admission",
+            current_condition_generations,
+            diagnose=rt.lifecycle_diagnostics,
+        )
         before = rt.get(SSH_GROUP, "sshhosts", "worker-0")["spec"]["consumerRef"]["uid"]
         rt.patch(CAPI_GROUP, "machinedeployments", "workers", {"spec": {"replicas": 0}})
         eventually(

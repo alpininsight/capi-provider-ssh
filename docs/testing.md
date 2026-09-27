@@ -75,6 +75,24 @@ Source pointers: [stateful lifecycle tests](../python/tests/test_lifecycle_contr
 [TLS transport](../python/tests/test_readiness_transport.py),
 [Kind lifecycle](../python/tests/kind/test_lifecycle.py).
 
+### Kind failure diagnostics
+
+The condition-generation timeout and `lifecycle-diagnostics.json` include an
+allowlisted projection of SSHMachine/Machine/MachineSet/MachineDeployment state,
+owner UIDs, resource versions and managed-field manager/operation. Events and
+bounded CAPI controller logs contribute only known error categories and object
+identities, never messages, log lines, specs, annotations, Secret references or
+bootstrap content. Unknown reasons/managers are `Other`; unknown log formats
+are not exported. Collection failures/truncated lists are explicit. Empty log
+observations do not prove that no creation error occurred, and log object names
+are correlated with identities **at snapshot time**, not proof of historical UID.
+The condition-generation assertion checks exactly the four CAPI
+`Machine`-referenced and Machine-owned `SSHMachine` resources. An unadopted,
+unprovisioned infrastructure-template clone cannot satisfy that assertion or
+replace a referenced resource. The polling timeout and cleanup contract remain
+unchanged. Pure projection/fake-client tests are not a substitute for the
+required real Kind lifecycle run.
+
 ## Temporary coverage measurement
 
 Coverage is a diagnostic for selecting meaningful gaps. From `python/`, write
