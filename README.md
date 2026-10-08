@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/ci-python.yml/badge.svg)](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/ci-python.yml)
 [![Container](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/container-build-python.yml/badge.svg)](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/container-build-python.yml)
-[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-brightgreen.svg)](LICENSE)
 
 **Cluster API for the servers you already have.**
 
@@ -159,7 +159,7 @@ test kubeconfig. Unit success alone does not certify a release or live rollout.
 
 ## License and contribution
 
-[Mozilla Public License 2.0](LICENSE), copyright in [NOTICE](NOTICE). Contributions follow [Conventional Commits](https://www.conventionalcommits.org/)
+[Apache License 2.0](LICENSE), attribution in [NOTICE](NOTICE). Contributions follow [Conventional Commits](https://www.conventionalcommits.org/)
 and the [Developer Certificate of Origin](DCO); sign commits with `git commit -s`.
 Create a working branch from current `develop` and submit a PR back to `develop`.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for review and documentation requirements.

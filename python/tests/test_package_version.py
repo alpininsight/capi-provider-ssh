@@ -44,3 +44,4 @@ def test_invalid_release_identity_fails_closed(invalid):
 def test_package_license_matches_canonical_repository_license():
     root = Path(__file__).resolve().parents[2]
     assert (root / "python/LICENSE").read_bytes() == (root / "LICENSE").read_bytes()
+    assert (root / "python/NOTICE").read_bytes() == (root / "NOTICE").read_bytes()

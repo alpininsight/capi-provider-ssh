@@ -15,7 +15,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest@sha256:8b940d3a9d65bed080436972241af2e21
 WORKDIR /app
 
 # Copy all source and config for package installation
-COPY pyproject.toml uv.lock README.md LICENSE package_version.py hatch_build.py ./
+COPY pyproject.toml uv.lock README.md LICENSE NOTICE package_version.py hatch_build.py ./
 COPY capi_provider_ssh/ capi_provider_ssh/
 
 # Install only locked production dependencies. The application uses uv rather
@@ -39,7 +39,7 @@ USER 65532:65532
 
 # OCI labels (static fallback for standalone builds; CI overrides dynamic labels)
 LABEL org.opencontainers.image.vendor="Alpin Insight Solutions" \
-      org.opencontainers.image.licenses="MPL-2.0" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.url="https://github.com/alpininsight/capi-provider-ssh" \
       org.opencontainers.image.source="https://github.com/alpininsight/capi-provider-ssh" \
       org.opencontainers.image.description="Cluster API infrastructure provider for SSH-reachable hosts"

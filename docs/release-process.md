@@ -70,9 +70,9 @@ The non-editable container installation removes the source copy so it cannot
 shadow the installed package's release identity. The OCI version metadata retains
 the selected SemVer; compare using the documented conversion above.
 
-Both artifacts include `LICENSE`, `License-Expression: MPL-2.0`, `License-File` and
-public project URLs. `python/LICENSE` must match the canonical repository license
-byte for byte; changing license terms requires a separate explicit decision.
+Both artifacts include `LICENSE`, `NOTICE`, `License-Expression: Apache-2.0`,
+`License-File` entries and public project URLs. `python/LICENSE` and `python/NOTICE`
+must match the canonical repository files byte for byte; changing license terms requires a separate explicit decision.
 The artifact check inspects both formats, rebuilds a wheel outside Git and the
 version environment, then imports an isolated installation:
 
