@@ -18,16 +18,17 @@ def run(*args, **kwargs):
     subprocess.run(args, check=True, **kwargs)
 
 
-def inspect_wheel(path, expected, license_bytes):
+def inspect_wheel(path, expected, license_bytes, notice_bytes):
     with zipfile.ZipFile(path) as archive:
         metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
         metadata = email.message_from_bytes(archive.read(metadata_name))
         assert metadata["Version"] == expected, metadata["Version"]
-        assert metadata["License-Expression"] == "MPL-2.0"
-        assert metadata.get_all("License-File") == ["LICENSE"]
+        assert metadata["License-Expression"] == "Apache-2.0"
+        assert metadata.get_all("License-File") == ["LICENSE", "NOTICE"]
         assert len(metadata.get_all("Project-URL", [])) >= 5
         license_name = metadata_name.removesuffix("METADATA") + "licenses/LICENSE"
         assert archive.read(license_name) == license_bytes
+        assert archive.read(license_name.removesuffix("LICENSE") + "NOTICE") == notice_bytes
         assert archive.read("capi_provider_ssh/_version.txt").decode().strip() == expected
 
 
@@ -41,6 +42,8 @@ def main():
     versioned_env = {**clean_env, "PROVIDER_VERSION": args.version}
     license_bytes = (PROJECT / "LICENSE").read_bytes()
     assert license_bytes == (PROJECT.parent / "LICENSE").read_bytes()
+    notice_bytes = (PROJECT / "NOTICE").read_bytes()
+    assert notice_bytes == (PROJECT.parent / "NOTICE").read_bytes()
     offline = ["--offline"] if args.offline else []
     original = (PROJECT / "capi_provider_ssh/_version.txt").read_bytes()
     with tempfile.TemporaryDirectory(prefix="capi-artifact-check-") as temporary:
@@ -57,14 +60,15 @@ def main():
         )
         wheel = next((directory / "dist").glob("*.whl"))
         sdist = next((directory / "dist").glob("*.tar.gz"))
-        inspect_wheel(wheel, expected, license_bytes)
+        inspect_wheel(wheel, expected, license_bytes, notice_bytes)
         with tarfile.open(sdist) as archive:
             archive.extractall(directory / "source", filter="data")
         source = next((directory / "source").iterdir())
         assert (source / "LICENSE").read_bytes() == license_bytes
+        assert (source / "NOTICE").read_bytes() == notice_bytes
         metadata = email.message_from_bytes((source / "PKG-INFO").read_bytes())
         assert metadata["Version"] == expected
-        assert metadata.get_all("License-File") == ["LICENSE"]
+        assert metadata.get_all("License-File") == ["LICENSE", "NOTICE"]
         # No Git checkout and no PROVIDER_VERSION: the archive must retain identity.
         run(
             "uv",
@@ -78,7 +82,7 @@ def main():
             cwd=directory,
         )
         rebuilt = next((directory / "rebuilt").glob("*.whl"))
-        inspect_wheel(rebuilt, expected, license_bytes)
+        inspect_wheel(rebuilt, expected, license_bytes, notice_bytes)
         run("uv", "venv", "--python", sys.executable, str(directory / "venv"), *offline, env=clean_env, cwd=directory)
         interpreter = directory / "venv/bin/python"
         run(

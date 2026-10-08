@@ -4,8 +4,11 @@ FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae
 RUN apt-get update && \
     apt-get install --yes --no-install-recommends --only-upgrade \
         gzip=1.13-1+deb13u1 \
-        libpcre2-8-0=10.46-1~deb13u2 \
+        libpcre2-8-0=10.46-1~deb13u3 \
         libsqlite3-0=3.46.1-7+deb13u2 \
+        libssl3t64=3.5.7-1~deb13u3 \
+        openssl=3.5.7-1~deb13u3 \
+        openssl-provider-legacy=3.5.7-1~deb13u3 \
         perl-base=5.40.1-6+deb13u1 && \
     rm -rf /var/lib/apt/lists/*
 
@@ -15,7 +18,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest@sha256:8b940d3a9d65bed080436972241af2e21
 WORKDIR /app
 
 # Copy all source and config for package installation
-COPY pyproject.toml uv.lock README.md LICENSE package_version.py hatch_build.py ./
+COPY pyproject.toml uv.lock README.md LICENSE NOTICE package_version.py hatch_build.py ./
 COPY capi_provider_ssh/ capi_provider_ssh/
 
 # Install only locked production dependencies. The application uses uv rather
@@ -39,7 +42,7 @@ USER 65532:65532
 
 # OCI labels (static fallback for standalone builds; CI overrides dynamic labels)
 LABEL org.opencontainers.image.vendor="Alpin Insight Solutions" \
-      org.opencontainers.image.licenses="MPL-2.0" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.url="https://github.com/alpininsight/capi-provider-ssh" \
       org.opencontainers.image.source="https://github.com/alpininsight/capi-provider-ssh" \
       org.opencontainers.image.description="Cluster API infrastructure provider for SSH-reachable hosts"

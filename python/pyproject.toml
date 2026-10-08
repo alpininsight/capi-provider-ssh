@@ -3,8 +3,8 @@ name = "capi-provider-ssh"
 dynamic = ["version"]
 description = "Cluster API infrastructure provider for SSH-reachable hosts"
 readme = "README.md"
-license = "MPL-2.0"
-license-files = ["LICENSE"]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.13"
 dependencies = [
     "kopf>=1.37,<2",
@@ -31,7 +31,7 @@ expression = "get_version()"
 [tool.hatch.build.hooks.custom]
 
 [tool.hatch.build.targets.sdist]
-include = ["capi_provider_ssh", "package_version.py", "hatch_build.py", "pyproject.toml", "README.md", "LICENSE"]
+include = ["capi_provider_ssh", "package_version.py", "hatch_build.py", "pyproject.toml", "README.md", "LICENSE", "NOTICE"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["capi_provider_ssh"]

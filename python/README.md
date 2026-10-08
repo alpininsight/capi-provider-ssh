@@ -19,7 +19,7 @@ versions with a losslessly encoded local label. Unversioned source builds identi
 themselves as `0.0.0+unversioned`; they make no release claim. Source archives
 retain their build version for subsequent offline wheel builds.
 
-The package includes the repository's MPL-2.0 license. See the
+The package includes the repository's Apache-2.0 license and NOTICE. See the
 [maintenance policy](https://github.com/alpininsight/capi-provider-ssh/blob/main/docs/maintenance-policy.md)
 for supported release lines and backports, and use
 [private vulnerability reporting](https://github.com/alpininsight/capi-provider-ssh/security/advisories/new)

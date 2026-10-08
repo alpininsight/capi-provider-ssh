@@ -66,7 +66,7 @@ jobs:
           docker run --rm --entrypoint python capi-provider-ssh-python:ci \
             -c 'import sys, asyncssh, kopf, kubernetes, capi_provider_ssh; print(sys.version)'
           docker run --rm -e EXPECTED_PACKAGE_VERSION --entrypoint python capi-provider-ssh-python:ci \
-            -c 'import os, importlib.metadata as m, capi_provider_ssh as p; d = m.distribution("capi-provider-ssh"); assert d.version == p.__version__ == os.environ["EXPECTED_PACKAGE_VERSION"]; assert d.metadata["License-Expression"] == "MPL-2.0"; license_file = next(f for f in d.files if str(f).endswith(".dist-info/licenses/LICENSE")); assert "Mozilla Public License" in d.locate_file(license_file).read_text()'
+            -c 'import os, importlib.metadata as m, capi_provider_ssh as p; d = m.distribution("capi-provider-ssh"); assert d.version == p.__version__ == os.environ["EXPECTED_PACKAGE_VERSION"]; assert d.metadata["License-Expression"] == "Apache-2.0"; license_file = next(f for f in d.files if str(f).endswith(".dist-info/licenses/LICENSE")); assert "Apache License" in d.locate_file(license_file).read_text()'
 
       - name: Scan validation image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -203,14 +203,14 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
           labels: |
             org.opencontainers.image.vendor=Alpin Insight Solutions
-            org.opencontainers.image.licenses=MPL-2.0
+            org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.url=https://github.com/alpininsight/capi-provider-ssh
             org.opencontainers.image.source=https://github.com/alpininsight/capi-provider-ssh
             org.opencontainers.image.documentation=https://github.com/alpininsight/capi-provider-ssh/tree/main/docs
             org.opencontainers.image.description=Cluster API infrastructure provider for SSH-reachable hosts
             org.opencontainers.image.version=${{ needs.version.outputs.semver }}
           annotations: |
-            org.opencontainers.image.licenses=MPL-2.0
+            org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.version=${{ needs.version.outputs.semver }}
 
       - name: Build and push image
