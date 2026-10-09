@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **deps-dev:** Bump ruff in /python in the version-updates group
 - **deps-dev:** Bump ruff in /python in the version-updates group
+- **license:** Convert to Apache-2.0 with NOTICE
 
 ### Testing
 
