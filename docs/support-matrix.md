@@ -52,7 +52,7 @@ under review; historical counts are not a substitute.
 | Bootstrap and failover | Implemented | Real CAPI init/joins, durable receipts, provider takeover and no duplicate bootstrap in the Kind lane |
 | CAPI pause | Implemented | Owner-chain pause, missing/recreated owners and API denial prevent new remote work; accepted commands can continue |
 | Lifecycle conditions | Implemented in this source; legacy contract retained | Pause/Unknown reporting, stable status transition times, observed generations and cleanup readiness/receipt status; see [API semantics](api-reference.md#lifecycle-conditions) |
-| Python distribution metadata | Release-derived for versioned builds | Wheel/sdist and isolated rebuild retain version, MPL-2.0 license file and project URLs; unversioned source explicitly identifies itself as such; no PyPI publication claim |
+| Python distribution metadata | Release-derived for versioned builds | Wheel/sdist and isolated rebuild retain version, Apache-2.0 license and NOTICE files and project URLs; unversioned source explicitly identifies itself as such; no PyPI publication claim |
 | Reboot remediation | Implemented, in-band SSH | Completion requires changed boot ID; Unknown is not automatically replayed and blocks unresolved cleanup |
 | Controller HA | Two replicas with mandatory peering, host Leases and remote fencing | Requires eligible placement and a healthy management API/network; no end-to-end recovery SLO |
 | SDK responsiveness | Bounded worker execution with per-request connect/read timeouts in this source | Slow API and cancellation regression tests; dedicated Lease capacity, preserved CAS semantics; fleet scale remains uncertified |
