@@ -8,7 +8,7 @@ license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.13"
 dependencies = [
     "kopf>=1.37,<2",
-    "kubernetes>=32,<37",
+    "kubernetes>=32,<38",
     "asyncssh>=2.20,<3",
 ]
 
