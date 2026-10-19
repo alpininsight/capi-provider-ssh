@@ -49,7 +49,12 @@ The base Deployment contains the development image tag. The consumer overlay
 must replace it with its accepted `ghcr.io/alpininsight/capi-provider-ssh-python@sha256:…`
 pin. Do not deploy the floating base unchanged as an accepted environment.
 The repository does not yet provide `metadata.yaml` plus a versioned
-`infrastructure-components.yaml` release bundle for `clusterctl init --infrastructure ssh`.
+`infrastructure-components.yaml` release bundle for clusterctl installation.
+The proposed built-in name is `alpininsight-ssh`, not a currently supported
+installation command. See the [integration plan](clusterctl-integration.md) for
+release packaging, namespace/identity migration, install/upgrade acceptance and
+the separate move/pivot boundary. Keep the current GitOps installation under its
+existing owner until those changes are explicitly accepted.
 
 Deliver in this order through the environment's existing manifest owner:
 
