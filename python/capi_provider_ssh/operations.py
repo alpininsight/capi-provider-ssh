@@ -19,6 +19,10 @@ OWNER_PATH = "/var/lib/capi-provider-ssh/owner"
 REMOTE_LOCK = "/var/lib/capi-provider-ssh-operation.lock"
 LEASE_NAMESPACE = os.environ.get("POD_NAMESPACE", "capi-provider-ssh-system")
 LEASE_SECONDS = 60
+# The Kubernetes Lease API takes whole seconds (kubernetes>=37 validates this),
+# so the renewal cadence is its own setting instead of a fraction of a
+# monkeypatched duration.
+LEASE_RENEW_SECONDS = LEASE_SECONDS / 4
 
 
 class HostLease:
@@ -109,7 +113,7 @@ async def host_operation(binding: dict, machine_uid: str):
         nonlocal lost
         while not stopped.is_set():
             try:
-                await asyncio.wait_for(stopped.wait(), LEASE_SECONDS / 4)
+                await asyncio.wait_for(stopped.wait(), LEASE_RENEW_SECONDS)
             except TimeoutError:
                 try:
                     if await run_coordination(lease.renew):
