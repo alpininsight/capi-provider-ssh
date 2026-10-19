@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Clarify provider use and delivery
 - **readme:** Lead with the problem the provider solves
+- **provider:** Correct ownership, release boundaries and clusterctl roadmap
 
 ### Miscellaneous
 
