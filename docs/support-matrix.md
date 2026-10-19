@@ -1,11 +1,27 @@
 # Support and validation matrix
 
-Reviewed: **2026-09-08**. This is the product compatibility reference for the
+Reviewed: **2026-10-19**. This is the product compatibility reference for the
 checked-out source, not a live deployment dashboard. A published architecture,
 passing contract test and certified physical workload are different claims.
 The latest stable minor (currently 0.4.x) is maintained under the
 [maintenance/backport policy](maintenance-policy.md). No separate commercial SLA,
 LTS duration or hardware certification is declared.
+
+## Release and deployment scope
+
+The latest published stable release checked on this date is **v0.4.8**. Its OCI
+image declares version `0.4.8`, source revision
+`508ad173c286c1e8d1ebc41adc83f406b4a5db78` and MPL-2.0. This develop source
+contains the Apache-2.0 + NOTICE change from
+[#300](https://github.com/alpininsight/capi-provider-ssh/pull/300); that change is
+not a retroactive statement about v0.4.8 or earlier artifacts.
+
+The implementation/test baseline below describes the checked-out source. A
+release version, controller health, a consumer image pin and an accepted workload
+lifecycle are independent facts. In particular, a healthy installation may have
+an [empty CAPI fleet](faq.md#why-is-the-capi-fleet-empty-even-though-the-controller-is-healthy).
+Keep private deployment inventories and dated observations in the consumer
+repository rather than turning this compatibility matrix into a live dashboard.
 
 ## v0.4.4 package identity notice
 
@@ -32,8 +48,8 @@ or a change in the live consumer deployment.
 | CAPI core / CABPK / KCP | 1.12.11, aligned components; tested upgrade bridge from 1.9.2 | The next supported upgrade is a separate validation stage |
 | Provider API | `infrastructure.alpininsight.ai/v1beta1`, namespaced structural CRDs | Legacy v1beta1 CAPI contract; no complete v1beta2 conformance claim |
 | Python | Source minimum 3.13; unit matrix 3.13/3.14; container Python 3.14 | Later Python minors are not validated |
-| Kopf / AsyncSSH | Locked 1.44.6 / 2.24.0 | Keep dependency changes with their actual image/lifecycle evidence |
-| Kubernetes Python client | Locked 36.0.3; used Core, Coordination and CustomObjects APIs tested against 1.34.11 | The client is generated for Kubernetes 1.36; this is API overlap, not exact minor equivalence |
+| Kopf / AsyncSSH | Locked 1.45.1 / 2.24.1 after [#306](https://github.com/alpininsight/capi-provider-ssh/pull/306) | Keep dependency changes with their actual image/lifecycle evidence |
+| Kubernetes Python client | Locked 37.0.1; used Core, Coordination and CustomObjects APIs tested against 1.34.11 | The client is generated for Kubernetes 1.37; this is API overlap, not exact minor equivalence |
 | OCI architectures | Published linux/amd64 and linux/arm64 | Required hosted Kind lifecycle runs on linux/amd64; publication is not arm64 hardware certification |
 | kubeadm configuration | v1beta3 maps and v1beta4 name/value arguments | Unknown versions fail closed; not a general cloud-init implementation |
 | Target hosts | Pre-provisioned Linux, verified SSH, root-capable operations, flock and a prepared kubeadm/runtime baseline | No OS installer, disk erasure guarantee or all-distribution certification |
