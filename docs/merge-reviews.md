@@ -176,3 +176,32 @@ different SSH ports remain separate P2 work. The hardware contract correction
 belongs in `hybrid-hw-foundation`; the CAPI canary definitions and rollout belong
 in `insight-lima-k8s-capi`. Record the correction PR's final checks and merge SHA
 in its follow-up review, rather than claiming a local test is a completed rollout.
+
+## 2026-10-19: lifecycle, positioning and dependency follow-up
+
+This refresh follows the accepted v0.4.8 release and the separately merged
+[Lease test correction #309](https://github.com/alpininsight/capi-provider-ssh/pull/309)
+at `65b10f09d6f098068855ae78a72962e49ac506f3`. #309 passed all eight required
+checks, including the real Kind lifecycle; #308 closed after merge. Dependency
+[#306](https://github.com/alpininsight/capi-provider-ssh/pull/306) then integrated
+the correction and passed its own final-head checks, including
+[Python/Kind CI](https://github.com/alpininsight/capi-provider-ssh/actions/runs/39259607530)
+and [package/container validation](https://github.com/alpininsight/capi-provider-ssh/actions/runs/39259607846).
+It merged at `fac36a9b5e849befbd64bc25f4ffc616da2c4a3b`. Its previous failing run
+was not made successful by #309's results.
+
+| Escaped gap / recurring pattern | Concrete prevention | Acceptance / owner |
+|---|---|---|
+| #280 counted an extra unadopted template clone as a fifth workload Machine | Follow the CAPI Machine reference and matching owner UID when checking SSHMachine conditions; retain negative controls and safe timeout diagnostics | Provider/CI; keep the real lifecycle gate and its cleanup/reuse/failover assertions |
+| A later README change claimed uniqueness and that the provider ran the management cluster; healthy installed controllers and a CI run did not establish either | Compare alternatives and require matching CAPI ownership/workload evidence for deployment claims; document intentional empty fleets | Documentation reviewer; verify claims against implementation and dated consumer evidence |
+| The #306 Lease test patched an integer Kubernetes API field to a fraction; client 37's model validation failed before the intended Lease-loss branch | Keep Lease duration integer and accelerate only the separate renewal cadence; inspect the original cause before attributing a failure to Kopf | #309; require new Python and Kind checks with the updated dependency lock |
+| Stable publication and live adoption drifted apart while both remained individually healthy | Track source, stable release/image, consumer pin, Argo state and actual workload acceptance separately | Release/platform owner; a prepared PR is not a rollout |
+| An automatic changelog merge moved develop while #306's first refreshed CI was running | Recheck the base immediately before merge and update the dependent PR; never reuse the superseded checks or bypass strict freshness | Integrator; #306 passed again after integrating #310 |
+| The scheduled external SSH lane repeatedly failed configuration preflight | Supply an approved disposable target and independently verified trust before claiming external transport acceptance; preserve the explicit failing gate | Platform/CI owner; target, key and known-hosts configuration plus a successful actual run |
+| Post-merge notes lagged behind later PRs | Extend this record with escaped findings, prevention and exact acceptance; put private execution evidence in the consumer record | Each change owner; check the record before preparing a release |
+
+The October refresh's local baseline passed 431 isolated tests with 86% coverage
+and Ruff checks. Those results exclude the integration/e2e/kind markers and are
+not a physical workload soak. No live reset, host adoption or management-cluster
+move was performed. The historical P2 items above are not declared resolved by
+this documentation change.

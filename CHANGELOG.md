@@ -14,11 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **controller:** Protect bootstrap errors and isolate Kubernetes API I/O
 - **container:** Apply scoped Debian security updates
 - **license:** Let automated license detection recognise MPL-2.0
+- **lease:** Keep the Lease duration an integer and make renewal cadence its own setting
 
 ### Documentation
 
 - Clarify provider use and delivery
 - **readme:** Lead with the problem the provider solves
+- **provider:** Correct ownership, release boundaries and clusterctl roadmap
 
 ### Miscellaneous
 

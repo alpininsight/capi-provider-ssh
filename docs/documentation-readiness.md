@@ -1,10 +1,18 @@
 # Documentation and OSS readiness
 
-Updated: **2026-09-08**, for the priority-fix source based on develop
-`9ac6495d8a367e15752bf3f62ae26c7a3f960bcb`. The initial audit used the v0.4.3
-product baseline after PRs #255/#256. Implementation below describes this
-checked-out source; published v0.4.3 artifacts and consumer deployments are not
-retroactively changed. This is not an OpenSSF certification or SLA.
+Updated: **2026-10-19**. The initial September audit used the v0.4.3 baseline;
+the latest published stable release checked in this refresh is v0.4.8.
+Implementation below describes the checked-out source. Stable v0.4.8 retains
+MPL-2.0, while develop contains the Apache-2.0 + NOTICE change from #300.
+Published artifacts and consumer deployments are not retroactively changed.
+This is not an OpenSSF certification or SLA.
+
+The refresh corrected the README's first/only-provider and management-cluster
+ownership claims. A healthy controller installation can have no managed
+workload resources; the [fleet FAQ](faq.md#why-is-the-capi-fleet-empty-even-though-the-controller-is-healthy)
+explains the missing ownership chain. The external SSH lane currently lacks its
+approved target/trust configuration, and release-specific clusterctl assets and
+move/pivot acceptance remain open. Private live snapshots stay consumer-owned.
 
 The current documentation substantially covers the implemented provider and
 states its support boundaries. A wholesale rewrite is not the next dependency.
