@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - **provider:** Correct ownership, release boundaries and clusterctl roadmap
+- **release:** Keep maintenance scope valid after the next minor promotion
 
 
 ### Miscellaneous
