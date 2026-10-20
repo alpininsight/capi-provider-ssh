@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **lease:** Keep the Lease duration an integer and make renewal cadence its own setting
 - **release:** Preserve stable changelog boundaries and promotion metadata
+- **security:** Refresh vulnerable runtime dependencies and clarify owner identity
+
+### CI/CD
+
+- **kind:** Pin the validated Ubuntu 24.04 lifecycle runner
 
 ### Documentation
 
