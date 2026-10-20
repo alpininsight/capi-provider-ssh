@@ -94,7 +94,8 @@ jobs:
 
   kind-lifecycle:
     name: CAPI lifecycle and provider failover
-    runs-on: ubuntu-latest
+    # Keep the nested kubeadm host on its validated OS; qualify upgrades separately.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - name: Checkout repository

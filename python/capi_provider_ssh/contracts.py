@@ -13,6 +13,18 @@ from capi_provider_ssh.conditions import merge_conditions
 
 PAUSED_ANNOTATION = "cluster.x-k8s.io/paused"
 CLUSTER_LABEL = "cluster.x-k8s.io/cluster-name"
+CAPI_GROUP = "cluster.x-k8s.io"
+
+
+def capi_owner_api_version(owner: dict) -> str | None:
+    """Parse Kubernetes group/version identity; an API group is not a URL."""
+    api_version = owner.get("apiVersion")
+    if not isinstance(api_version, str):
+        return None
+    group, separator, version = api_version.partition("/")
+    if group == CAPI_GROUP and separator and version and "/" not in version:
+        return version
+    return None
 
 
 def get_object(plural: str, namespace: str, name: str, *, group=API_GROUP, version=API_VERSION) -> dict:
@@ -33,12 +45,12 @@ def is_paused(spec: dict, meta: dict, namespace: str) -> bool:
     cluster_name = (meta.get("labels") or {}).get(CLUSTER_LABEL)
     cluster_version = "v1beta1"
     for owner in meta.get("ownerReferences", []):
-        if not owner.get("apiVersion", "").startswith("cluster.x-k8s.io/"):
+        version = capi_owner_api_version(owner)
+        if version is None:
             continue
         kind = owner.get("kind")
         if kind not in {"Machine", "Cluster"}:
             continue
-        version = owner["apiVersion"].split("/", 1)[1]
         try:
             obj = get_object(kind.lower() + "s", namespace, owner["name"], group="cluster.x-k8s.io", version=version)
         except kubernetes.client.ApiException as exc:

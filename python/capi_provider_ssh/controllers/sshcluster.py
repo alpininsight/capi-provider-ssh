@@ -14,7 +14,7 @@ import kopf
 from capi_provider_ssh import API_GROUP, API_VERSION
 from capi_provider_ssh.api_io import run_api
 from capi_provider_ssh.conditions import condition, patch_conditions, report_pause
-from capi_provider_ssh.contracts import is_paused
+from capi_provider_ssh.contracts import capi_owner_api_version, is_paused
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +31,7 @@ def _has_capi_cluster_owner(owner_references: list[dict] | None) -> bool:
     """Check if the resource has a CAPI Cluster owner reference."""
     if not owner_references:
         return False
-    return any(
-        ref.get("apiVersion", "").startswith("cluster.x-k8s.io/") and ref.get("kind") == "Cluster"
-        for ref in owner_references
-    )
+    return any(capi_owner_api_version(ref) is not None and ref.get("kind") == "Cluster" for ref in owner_references)
 
 
 def _condition(condition_type: str, status: str, reason: str, message: str) -> dict:
