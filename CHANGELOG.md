@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **container:** Apply scoped Debian security updates
 - **license:** Let automated license detection recognise MPL-2.0
 - **lease:** Keep the Lease duration an integer and make renewal cadence its own setting
+- **security:** Refresh vulnerable runtime dependencies and clarify owner identity
+
+### CI/CD
+
+- **kind:** Pin the validated Ubuntu 24.04 lifecycle runner
 
 ### Documentation
 
