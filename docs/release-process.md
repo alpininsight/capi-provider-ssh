@@ -28,6 +28,36 @@ tag on the build's own commit still permits the matching image version tag; a
 tag on a different commit is preserved. Verify the release tag, image version
 tag and immutable source digest together after publication.
 
+## Changelog release boundaries
+
+Use **git-cliff 2.14.2**, matching the changelog and Python quality workflows.
+Version 2.14 corrected release attribution to use graph reachability; the older
+2.7.0 generator can misattribute late-merged commits even after stable tags are
+reachable. See the [upstream change](https://github.com/orhun/git-cliff/blob/main/website/blog/git-cliff-2.14.0.md).
+Fetch the full remote history and tags, then run from the repository root:
+
+```bash
+git fetch origin --tags
+python3 python/scripts/generate_changelog.py
+```
+
+The wrapper requires all stable tags reachable from `origin/main` to be present
+in the current history. It validates the generated release commit IDs against
+the peeled tags, checks commit ancestry and rejects already published work in
+Unreleased. It renders only that verified context and replaces `CHANGELOG.md`
+after success. Missing history or invalid attribution leaves the existing file
+intact. Maintenance entries remain in the context but are hidden in the
+template, so maintenance-only releases retain dated headings and source links.
+
+After each `develop` → `main` release, fetch and reconcile the new main merge
+commit through a working branch and a PR back to `develop`. Do this before the
+next changelog update, not with direct protected-branch pushes or a job that
+silently synchronizes branches. The changelog workflow deliberately fails if
+the stable history is missing. Never move historical tags or republish images
+to repair documentation. The [Git-history regression tests](../python/tests/test_changelog_generation.py)
+cover missing main-only release merges, annotated tags, maintenance-only releases,
+older topics merged after publication, corrupt contexts and repeat generation.
+
 ## Context7 documentation publication
 
 [`context7.json`](../context7.json) selects `main` as the default documentation
@@ -75,9 +105,9 @@ Both artifacts include `LICENSE`, `NOTICE`, `License-Expression: Apache-2.0`,
 must match the canonical repository files byte for byte; changing license terms requires a separate explicit decision.
 These statements describe this source revision. Released v0.4.8 and earlier
 artifacts retain their published MPL-2.0 identity. The Apache-2.0 + NOTICE change
-was accepted in [#300](https://github.com/alpininsight/capi-provider-ssh/pull/300)
-on develop; the next stable promotion must explicitly describe that transition
-and verify the new source, Python metadata and OCI license together. Never
+was accepted in [#300](https://github.com/alpininsight/capi-provider-ssh/pull/300).
+Release notes for the first stable promotion containing it must describe the
+transition and verify the source, Python metadata and OCI license together. Never
 rewrite a previous release or image to imply it used the new license.
 The artifact check inspects both formats, rebuilds a wheel outside Git and the
 version environment, then imports an isolated installation:

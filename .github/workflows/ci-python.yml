@@ -60,6 +60,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --dev
 
+      - name: Install git-cliff for release-history regression tests
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: git-cliff@2.14.2
+
       - name: Ruff lint
         run: uv run ruff check .
 

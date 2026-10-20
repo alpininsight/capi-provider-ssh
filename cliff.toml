@@ -16,17 +16,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 # Template for the changelog body
 body = """
 {% if version %}\
-    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+    ## [{{ version | trim_start_matches(pat="v") }}](<REPO>/releases/tag/{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+
+    Source: [{{ version }}](<REPO>/tree/{{ commit_id }})
 {% else %}\
     ## [Unreleased]
 {% endif %}\
+{% set maintenance = commits | filter(attribute="group", value="Maintenance") %}\
+{% if commits | length == maintenance | length %}
+    No user-facing Conventional Commit entries.
+{% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
+{% if group != "Maintenance" %}\
     ### {{ group | striptags | trim | upper_first }}
     {% for commit in commits %}
         - {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
             {{ commit.message | upper_first }}\
             {% if commit.breaking %} [**BREAKING**]{% endif %}\
     {% endfor %}
+{% endif %}\
 {% endfor %}\n
 """
 
@@ -38,6 +46,9 @@ footer = """
 
 # Remove leading/trailing whitespace
 trim = true
+
+# Render an otherwise empty changelog as well.
+render_always = true
 
 # Postprocessors for commit messages
 postprocessors = [
@@ -73,11 +84,13 @@ commit_parsers = [
     { message = "^test", group = "Testing" },
     { message = "^build", group = "Build System" },
     { message = "^ci", group = "CI/CD" },
-    { message = "^chore\\(release\\)", skip = true },
-    { message = "^chore\\(deps\\)", skip = true },
-    { message = "^chore\\(pr\\)", skip = true },
-    { message = "^chore\\(pull\\)", skip = true },
-    { message = "^chore\\(changelog\\)", skip = true },
+    # Keep maintenance in the graph context so its release cannot disappear.
+    # The template suppresses its individual entries, not its stable boundary.
+    { message = "^chore\\(release\\)", group = "Maintenance" },
+    { message = "^chore\\(deps\\)", group = "Maintenance" },
+    { message = "^chore\\(pr\\)", group = "Maintenance" },
+    { message = "^chore\\(pull\\)", group = "Maintenance" },
+    { message = "^chore\\(changelog\\)", group = "Maintenance" },
     { message = "^chore", group = "Miscellaneous" },
     { message = "^revert", group = "Reverted" },
 ]

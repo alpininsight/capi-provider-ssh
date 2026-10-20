@@ -1,9 +1,10 @@
 # Documentation and OSS readiness
 
-Updated: **2026-10-19**. The initial September audit used the v0.4.3 baseline;
-the latest published stable release checked in this refresh is v0.4.8.
-Implementation below describes the checked-out source. Stable v0.4.8 retains
-MPL-2.0, while develop contains the Apache-2.0 + NOTICE change from #300.
+Updated: **2026-10-20**. The initial September audit used the v0.4.3 baseline.
+Implementation below describes the checked-out source, which uses Apache-2.0
+with NOTICE after #300. Historical v0.4.8 retains MPL-2.0; use the
+[latest published release](https://github.com/alpininsight/capi-provider-ssh/releases/latest)
+and its tag-specific source/image evidence for the current stable identity.
 Published artifacts and consumer deployments are not retroactively changed.
 This is not an OpenSSF certification or SLA.
 
