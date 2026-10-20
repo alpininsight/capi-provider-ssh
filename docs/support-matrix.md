@@ -3,7 +3,7 @@
 Reviewed: **2026-10-20**. This is the product compatibility reference for the
 checked-out source, not a live deployment dashboard. A published architecture,
 passing contract test and certified physical workload are different claims.
-The latest stable minor (currently 0.4.x) is maintained under the
+The latest published stable minor is maintained under the
 [maintenance/backport policy](maintenance-policy.md). No separate commercial SLA,
 LTS duration or hardware certification is declared.
 
@@ -42,8 +42,7 @@ The correction in this source selects the stable version on `main` and retains
 prerelease identity elsewhere. It does not repair the published `v0.4.4` artifact.
 The correction was published in **v0.4.5**; later stable artifacts must continue
 to match their own tag, package version and OCI metadata, verified by immutable
-digest. The maintained
-minor remains **0.4.x**; this finding alone does not establish a lifecycle failure
+digest. This historical finding alone does not establish a lifecycle failure
 or a change in the live consumer deployment.
 
 ## Tested baseline
