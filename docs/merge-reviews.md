@@ -220,6 +220,18 @@ obtain a release gate. OAuthlib server-side Medium advisories and the broader
 container audit remain tracked in [#222](https://github.com/alpininsight/capi-provider-ssh/issues/222);
 this correction does not claim that audit is complete.
 
+The first new lifecycle runs on #321 and #322 failed before the first workload
+control plane initialized. Their sanitized host errors reported kubeadm admin
+bootstrap API connection refusal/deadline expiry. The last successful
+[develop lifecycle](https://github.com/alpininsight/capi-provider-ssh/actions/runs/39295803434/job/118207932342)
+used Ubuntu 24.04 (`20261012.334.1`); the
+[failed security run](https://github.com/alpininsight/capi-provider-ssh/actions/runs/39436626161/job/118675218327)
+used Ubuntu 26.04 (`20261012.163.1`) through `ubuntu-latest`. Pin the lifecycle
+job to its validated `ubuntu-24.04` host and require the unchanged full test.
+This bounds the observed host-platform regression; the exact kernel/runtime
+mechanism on Ubuntu 26.04 remains to be isolated in a separate qualification.
+Do not add a blind retry, skip bootstrap or increase the acceptance timeout.
+
 The October refresh's local baseline passed 431 isolated tests with 86% coverage
 and Ruff checks. Those results exclude the integration/e2e/kind markers and are
 not a physical workload soak. No live reset, host adoption or management-cluster
