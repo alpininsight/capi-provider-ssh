@@ -2,8 +2,12 @@
 
 The public provider uses GitHub-hosted runners. The organization notebook pool
 is restricted to private repositories and is not an execution target for this
-repository. External SSH E2E uses `ubuntu-24.04`; standard quality and build lanes
-keep their existing GitHub-hosted runners.
+repository. External SSH E2E and the nested Kind/kubeadm lifecycle use
+`ubuntu-24.04`; standard quality and build lanes keep their existing GitHub-hosted
+runners. Qualify a new lifecycle host OS in a separate change before moving this
+pin. The October release preflight found Ubuntu 26.04 bootstrap failures behind
+`ubuntu-latest`; [merge reviews](merge-reviews.md#2026-10-20-security-preflight)
+retain the compared runner images and acceptance boundary.
 
 ## Required checks
 

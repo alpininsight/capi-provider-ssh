@@ -199,6 +199,38 @@ was not made successful by #309's results.
 | An automatic changelog merge moved develop while #306's first refreshed CI was running | Recheck the base immediately before merge and update the dependent PR; never reuse the superseded checks or bypass strict freshness | Integrator; #306 passed again after integrating #310 |
 | The scheduled external SSH lane repeatedly failed configuration preflight | Supply an approved disposable target and independently verified trust before claiming external transport acceptance; preserve the explicit failing gate | Platform/CI owner; target, key and known-hosts configuration plus a successful actual run |
 | Post-merge notes lagged behind later PRs | Extend this record with escaped findings, prevention and exact acceptance; put private execution evidence in the consumer record | Each change owner; check the record before preparing a release |
+| An issue-only release audit missed fresh High advisories in the runtime lock and open CodeQL findings | Recheck Dependabot, CodeQL and the final image scan independently of issue labels; update available vulnerable runtime dependencies before promotion | Release/security owner; 2026-10-20 follow-up below |
+
+### 2026-10-20 security preflight
+
+The required image scan for [#321](https://github.com/alpininsight/capi-provider-ssh/pull/321)
+found two High findings in aiohttp 3.14.3; its earlier green runs did not establish
+the current advisory state. Update aiohttp to 3.14.4 and multidict to 6.9.1,
+with the compatible yarl 1.25.1 resolution. Keep the High/Critical scan gate.
+References: [aiohttp request timeout advisory](https://github.com/advisories/GHSA-5wr8-gcqf-gqf3),
+[aiohttp resource use advisory](https://github.com/advisories/GHSA-2g87-pp6c-29x5)
+and [multidict reference leak](https://github.com/advisories/GHSA-54p9-h82j-f925).
+
+Four CodeQL findings treated Kubernetes API-group prefix checks as URL filtering.
+They did not establish an exploitable URL allowlist. Use one exact group/version
+parser instead, with valid-owner/pause tests and foreign/malformed-owner negative
+controls. Explicitly set TLS 1.2 as the minimum for the loopback TLS test server.
+Require fresh CodeQL and real Kind lifecycle results; do not suppress alerts to
+obtain a release gate. OAuthlib server-side Medium advisories and the broader
+container audit remain tracked in [#222](https://github.com/alpininsight/capi-provider-ssh/issues/222);
+this correction does not claim that audit is complete.
+
+The first new lifecycle runs on #321 and #322 failed before the first workload
+control plane initialized. Their sanitized host errors reported kubeadm admin
+bootstrap API connection refusal/deadline expiry. The last successful
+[develop lifecycle](https://github.com/alpininsight/capi-provider-ssh/actions/runs/39295803434/job/118207932342)
+used Ubuntu 24.04 (`20261012.334.1`); the
+[failed security run](https://github.com/alpininsight/capi-provider-ssh/actions/runs/39436626161/job/118675218327)
+used Ubuntu 26.04 (`20261012.163.1`) through `ubuntu-latest`. Pin the lifecycle
+job to its validated `ubuntu-24.04` host and require the unchanged full test.
+This bounds the observed host-platform regression; the exact kernel/runtime
+mechanism on Ubuntu 26.04 remains to be isolated in a separate qualification.
+Do not add a blind retry, skip bootstrap or increase the acceptance timeout.
 
 The October refresh's local baseline passed 431 isolated tests with 86% coverage
 and Ruff checks. Those results exclude the integration/e2e/kind markers and are

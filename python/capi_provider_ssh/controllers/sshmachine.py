@@ -27,7 +27,7 @@ import yaml
 from capi_provider_ssh import API_GROUP, API_VERSION
 from capi_provider_ssh.api_io import request, run_api
 from capi_provider_ssh.conditions import patch_conditions, report_pause
-from capi_provider_ssh.contracts import is_paused, persist_machine_status, read_known_hosts
+from capi_provider_ssh.contracts import capi_owner_api_version, is_paused, persist_machine_status, read_known_hosts
 from capi_provider_ssh.inventory import bind_machine, set_host_phase
 from capi_provider_ssh.lifecycle import delete_machine
 from capi_provider_ssh.lifecycle import reconcile_reboot as _reconcile_reboot
@@ -166,10 +166,7 @@ def _has_machine_owner(owner_references: list[dict] | None) -> bool:
     """Check if the resource has a CAPI Machine owner reference."""
     if not owner_references:
         return False
-    return any(
-        ref.get("apiVersion", "").startswith("cluster.x-k8s.io/") and ref.get("kind") == "Machine"
-        for ref in owner_references
-    )
+    return any(capi_owner_api_version(ref) is not None and ref.get("kind") == "Machine" for ref in owner_references)
 
 
 def _get_machine_owner_ref(owner_references: list[dict] | None) -> dict | None:
@@ -177,7 +174,7 @@ def _get_machine_owner_ref(owner_references: list[dict] | None) -> dict | None:
     if not owner_references:
         return None
     for ref in owner_references:
-        if ref.get("apiVersion", "").startswith("cluster.x-k8s.io/") and ref.get("kind") == "Machine":
+        if capi_owner_api_version(ref) is not None and ref.get("kind") == "Machine":
             return ref
     return None
 
