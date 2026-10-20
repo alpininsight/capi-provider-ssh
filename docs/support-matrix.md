@@ -1,6 +1,6 @@
 # Support and validation matrix
 
-Reviewed: **2026-10-19**. This is the product compatibility reference for the
+Reviewed: **2026-10-20**. This is the product compatibility reference for the
 checked-out source, not a live deployment dashboard. A published architecture,
 passing contract test and certified physical workload are different claims.
 The latest stable minor (currently 0.4.x) is maintained under the
@@ -9,12 +9,17 @@ LTS duration or hardware certification is declared.
 
 ## Release and deployment scope
 
-The latest published stable release checked on this date is **v0.4.8**. Its OCI
-image declares version `0.4.8`, source revision
-`508ad173c286c1e8d1ebc41adc83f406b4a5db78` and MPL-2.0. This develop source
-contains the Apache-2.0 + NOTICE change from
-[#300](https://github.com/alpininsight/capi-provider-ssh/pull/300); that change is
-not a retroactive statement about v0.4.8 or earlier artifacts.
+This source revision uses **Apache-2.0 with NOTICE**, introduced by
+[#300](https://github.com/alpininsight/capi-provider-ssh/pull/300). A stable release
+containing this revision must carry the same license in its source, Python
+artifacts and OCI metadata. Consult the [latest published release](https://github.com/alpininsight/capi-provider-ssh/releases/latest)
+for the current stable version and verify its own tag, source revision and image
+digest using the [release evidence chain](release-process.md#evidence-chain).
+
+Historical **v0.4.8** has source revision
+`508ad173c286c1e8d1ebc41adc83f406b4a5db78`, OCI version `0.4.8` and MPL-2.0.
+That release and earlier published artifacts retain their original identity;
+the source license change is not retroactive.
 
 The implementation/test baseline below describes the checked-out source. A
 release version, controller health, a consumer image pin and an accepted workload
@@ -35,8 +40,9 @@ but missed the mismatch with the stable release tag.
 
 The correction in this source selects the stable version on `main` and retains
 prerelease identity elsewhere. It does not repair the published `v0.4.4` artifact.
-Before a new stable promotion, require a new patch release with matching tag,
-package version and OCI metadata, verified by immutable digest. The maintained
+The correction was published in **v0.4.5**; later stable artifacts must continue
+to match their own tag, package version and OCI metadata, verified by immutable
+digest. The maintained
 minor remains **0.4.x**; this finding alone does not establish a lifecycle failure
 or a change in the live consumer deployment.
 

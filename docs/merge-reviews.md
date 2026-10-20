@@ -205,3 +205,17 @@ and Ruff checks. Those results exclude the integration/e2e/kind markers and are
 not a physical workload soak. No live reset, host adoption or management-cluster
 move was performed. The historical P2 items above are not declared resolved by
 this documentation change.
+
+## 2026-10-20: release preparation after #320 review
+
+The release review found two gaps despite green source checks. The correction
+belongs before promotion, while publication and consumer rollout remain separate
+acceptance stages. Record this preparation PR's final checks and merge commit in
+its follow-up comment.
+
+| Escaped gap / recurring pattern | Concrete prevention | Acceptance / owner |
+|---|---|---|
+| The support matrix described Apache-2.0 as develop-only and called v0.4.8 latest, which would become stale at the release merge | Describe the checked-out revision's license, link the current release dynamically and retain v0.4.8 only as historical provenance | Documentation reviewer; [#320 review](https://github.com/alpininsight/capi-provider-ssh/pull/320#discussion_r4316826280) |
+| Changelog generation succeeded while main-only release merge commits were absent from develop; git-cliff 2.7.0 also misattributed commits after reconciliation | Reconcile accepted main history through a PR; pin git-cliff 2.14.2 in generation and required Python jobs; validate tag identities and graph membership before replacing the file | Release/CI owner; [#318](https://github.com/alpininsight/capi-provider-ssh/issues/318) and real diverged-history regression tests |
+| Filtering maintenance entries could remove an entire stable release boundary | Keep maintenance commits in the verified context and suppress their entries only in the template; require every stable tag to be represented | Release owner; annotated maintenance-only fixture and source-linked release headings |
+| A documentation-only consumer preparation merge can be mistaken for a deployed provider update | Verify the actual files and image pin after merge; require later registry, GitOps and runtime evidence | Platform owner; [consumer #7688](https://github.com/alpininsight/insight-lima-k8s-capi/pull/7688) changed operations/preparation documents only |
