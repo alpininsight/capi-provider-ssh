@@ -197,7 +197,7 @@ was not made successful by #309's results.
 | The #306 Lease test patched an integer Kubernetes API field to a fraction; client 37's model validation failed before the intended Lease-loss branch | Keep Lease duration integer and accelerate only the separate renewal cadence; inspect the original cause before attributing a failure to Kopf | #309; require new Python and Kind checks with the updated dependency lock |
 | Stable publication and live adoption drifted apart while both remained individually healthy | Track source, stable release/image, consumer pin, Argo state and actual workload acceptance separately | Release/platform owner; a prepared PR is not a rollout |
 | An automatic changelog merge moved develop while #306's first refreshed CI was running | Recheck the base immediately before merge and update the dependent PR; never reuse the superseded checks or bypass strict freshness | Integrator; #306 passed again after integrating #310 |
-| The scheduled external SSH lane repeatedly failed configuration preflight | Supply an approved disposable target and independently verified trust before claiming external transport acceptance; preserve the explicit failing gate | Platform/CI owner; target, key and known-hosts configuration plus a successful actual run |
+| The scheduled external SSH lane repeatedly failed configuration preflight | Opt in to nightly tests only after configuring an approved disposable target and independently verified trust; manual and enabled runs retain the explicit failing gate | Platform/CI owner; [external SSH configuration](ci-governance.md#external-ssh-test-configuration) plus a successful actual run |
 | Post-merge notes lagged behind later PRs | Extend this record with escaped findings, prevention and exact acceptance; put private execution evidence in the consumer record | Each change owner; check the record before preparing a release |
 | An issue-only release audit missed fresh High advisories in the runtime lock and open CodeQL findings | Recheck Dependabot, CodeQL and the final image scan independently of issue labels; update available vulnerable runtime dependencies before promotion | Release/security owner; 2026-10-20 follow-up below |
 
@@ -251,3 +251,14 @@ its follow-up comment.
 | Changelog generation succeeded while main-only release merge commits were absent from develop; git-cliff 2.7.0 also misattributed commits after reconciliation | Reconcile accepted main history through a PR; pin git-cliff 2.14.2 in generation and required Python jobs; validate tag identities and graph membership before replacing the file | Release/CI owner; [#318](https://github.com/alpininsight/capi-provider-ssh/issues/318) and real diverged-history regression tests |
 | Filtering maintenance entries could remove an entire stable release boundary | Keep maintenance commits in the verified context and suppress their entries only in the template; require every stable tag to be represented | Release owner; annotated maintenance-only fixture and source-linked release headings |
 | A documentation-only consumer preparation merge can be mistaken for a deployed provider update | Verify the actual files and image pin after merge; require later registry, GitOps and runtime evidence | Platform owner; [consumer #7688](https://github.com/alpininsight/insight-lima-k8s-capi/pull/7688) changed operations/preparation documents only |
+
+## 2026-10-23: public documentation and external SSH scheduling
+
+| Escaped gap / recurring pattern | Concrete prevention | Acceptance / owner |
+|---|---|---|
+| Green technical checks did not detect private consumer links and internal acceptance details in public documentation | Review documentation and PR descriptions for audience and link visibility before promotion; retain generic consumer boundaries and keep internal evidence with its owner | Documentation reviewer; [#325](https://github.com/alpininsight/capi-provider-ssh/issues/325) and [#326](https://github.com/alpininsight/capi-provider-ssh/pull/326); removing current text does not rewrite history |
+| Nightly external SSH runs repeatedly failed before any test because no target or trust was configured | Require explicit schedule opt-in after a successful approved manual run; report disabled schedules as not run and preserve failing preflight for requested tests | CI owner; executable schedule-selection and missing-configuration regressions, plus [activation procedure](ci-governance.md#external-ssh-test-configuration) |
+
+The schedule change does not supply an external target or establish transport,
+workload lifecycle or consumer rollout acceptance. Record final checks and the
+actual merge result in the corresponding PR follow-up.

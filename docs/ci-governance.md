@@ -103,6 +103,7 @@ Repository configuration:
 
 | Setting | Purpose |
 |---|---|
+| Variable `E2E_SSH_ENABLED` | Set to exactly `true` to opt in to the nightly schedule after target/trust acceptance; unset or any other value disables scheduled tests |
 | Variable `E2E_SSH_HOST` | Explicit approved test endpoint; no hardcoded fallback |
 | Optional variables `E2E_SSH_PORT`, `E2E_SSH_USER` | Defaults: port 22, user root; a restricted test account is preferable |
 | Secret `E2E_SSH_PRIVATE_KEY` | Dedicated test identity private key |
@@ -110,13 +111,22 @@ Repository configuration:
 
 The workflow validates configuration before checkout, reports missing setting
 names without their values, uses private files in `runner.temp` and always
-removes those files. Missing configuration fails explicitly. It does not enable
+removes those files. Manual dispatch always requests the test, irrespective of
+`E2E_SSH_ENABLED`; enabled schedules and manual runs fail explicitly on missing
+configuration. A disabled schedule records **not run** in its configuration job
+summary and skips the external test job. That result is not SSH coverage or
+rollout acceptance. It does not enable
 public access to the shared notebook runner group or bypass SSH host trust.
 
 For verification, dispatch **E2E SSH Tests** on the reviewed branch and inspect
 the actual runner, preflight and test result. A runner starting the job proves
 routing only; the complete external test must also pass before claiming endpoint
 coverage.
+
+Until an approved target, identity and host trust are available, leave the
+schedule disabled and retain the external SSH evidence gap in release reviews.
+Configure the settings, obtain a successful manual test on the reviewed source,
+then enable the nightly schedule. Disable it again when the target is retired.
 
 Sources: [GitHub runner-group access](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/manage-access),
 [rulesets and required checks](https://docs.github.com/en/rest/repos/rules),

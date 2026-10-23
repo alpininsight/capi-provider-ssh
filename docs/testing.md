@@ -25,6 +25,10 @@ CI governance tests exercise missing, pending, failed and cancelled checks,
 changed PR heads/bases, conflicting branches, unexpected changes, check origin
 and server rejection. They also validate the required-check names against the
 actual workflows and execute the external-SSH configuration preflight.
+They also execute the schedule selector for default-disabled, explicitly enabled
+and manual runs, retaining failing preflight for missing target/trust settings.
+An external SSH configuration summary with a skipped test job is **not run**,
+not transport acceptance; see [schedule activation](ci-governance.md#external-ssh-test-configuration).
 Release-history tests build a real diverged Git repository and execute git-cliff
 2.14.2, installed in both required Python quality jobs. They reproduce missing
 main-only stable tags, retain maintenance-only releases and distinguish an
