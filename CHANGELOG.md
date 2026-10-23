@@ -17,11 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### CI/CD
 
 - **kind:** Pin the validated Ubuntu 24.04 lifecycle runner
+- **e2e:** Require explicit opt-in for external SSH schedules
 
 ### Documentation
 
 - **provider:** Correct ownership, release boundaries and clusterctl roadmap
 - **release:** Keep maintenance scope valid after the next minor promotion
+- Remove private repository references from public docs
 
 
 ### Miscellaneous

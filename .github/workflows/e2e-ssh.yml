@@ -13,8 +13,37 @@ permissions:
   contents: read
 
 jobs:
+  configuration:
+    name: External SSH lane configuration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      enabled: ${{ steps.select.outputs.enabled }}
+    steps:
+      - name: Select external SSH lane
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE_ENABLED: ${{ vars.E2E_SSH_ENABLED }}
+        run: |
+          set -euo pipefail
+          enabled=true
+          if [[ "$EVENT_NAME" == "schedule" && "$SCHEDULE_ENABLED" != "true" ]]; then
+            enabled=false
+            echo "::notice::External SSH schedule is disabled; no SSH tests ran."
+            {
+              echo "### External SSH E2E: not run"
+              echo "The schedule requires repository variable E2E_SSH_ENABLED=true."
+              echo "Enable it only after configuring an approved disposable target and verified SSH trust."
+              echo "This configuration result is not external SSH test or rollout acceptance."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+
   e2e-ssh:
     name: External SSH E2E
+    needs: configuration
+    if: needs.configuration.outputs.enabled == 'true'
     # Public-repository exception: the notebook runner pool is private-only.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
