@@ -1,11 +1,32 @@
 # Support and validation matrix
 
-Reviewed: **2026-09-08**. This is the product compatibility reference for the
+Reviewed: **2026-10-20**. This is the product compatibility reference for the
 checked-out source, not a live deployment dashboard. A published architecture,
 passing contract test and certified physical workload are different claims.
-The latest stable minor (currently 0.4.x) is maintained under the
+The latest published stable minor is maintained under the
 [maintenance/backport policy](maintenance-policy.md). No separate commercial SLA,
 LTS duration or hardware certification is declared.
+
+## Release and deployment scope
+
+This source revision uses **Apache-2.0 with NOTICE**, introduced by
+[#300](https://github.com/alpininsight/capi-provider-ssh/pull/300). A stable release
+containing this revision must carry the same license in its source, Python
+artifacts and OCI metadata. Consult the [latest published release](https://github.com/alpininsight/capi-provider-ssh/releases/latest)
+for the current stable version and verify its own tag, source revision and image
+digest using the [release evidence chain](release-process.md#evidence-chain).
+
+Historical **v0.4.8** has source revision
+`508ad173c286c1e8d1ebc41adc83f406b4a5db78`, OCI version `0.4.8` and MPL-2.0.
+That release and earlier published artifacts retain their original identity;
+the source license change is not retroactive.
+
+The implementation/test baseline below describes the checked-out source. A
+release version, controller health, a consumer image pin and an accepted workload
+lifecycle are independent facts. In particular, a healthy installation may have
+an [empty CAPI fleet](faq.md#why-is-the-capi-fleet-empty-even-though-the-controller-is-healthy).
+Keep private deployment inventories and dated observations in the consumer
+repository rather than turning this compatibility matrix into a live dashboard.
 
 ## v0.4.4 package identity notice
 
@@ -19,9 +40,9 @@ but missed the mismatch with the stable release tag.
 
 The correction in this source selects the stable version on `main` and retains
 prerelease identity elsewhere. It does not repair the published `v0.4.4` artifact.
-Before a new stable promotion, require a new patch release with matching tag,
-package version and OCI metadata, verified by immutable digest. The maintained
-minor remains **0.4.x**; this finding alone does not establish a lifecycle failure
+The correction was published in **v0.4.5**; later stable artifacts must continue
+to match their own tag, package version and OCI metadata, verified by immutable
+digest. This historical finding alone does not establish a lifecycle failure
 or a change in the live consumer deployment.
 
 ## Tested baseline
@@ -32,8 +53,8 @@ or a change in the live consumer deployment.
 | CAPI core / CABPK / KCP | 1.12.11, aligned components; tested upgrade bridge from 1.9.2 | The next supported upgrade is a separate validation stage |
 | Provider API | `infrastructure.alpininsight.ai/v1beta1`, namespaced structural CRDs | Legacy v1beta1 CAPI contract; no complete v1beta2 conformance claim |
 | Python | Source minimum 3.13; unit matrix 3.13/3.14; container Python 3.14 | Later Python minors are not validated |
-| Kopf / AsyncSSH | Locked 1.44.6 / 2.24.0 | Keep dependency changes with their actual image/lifecycle evidence |
-| Kubernetes Python client | Locked 36.0.3; used Core, Coordination and CustomObjects APIs tested against 1.34.11 | The client is generated for Kubernetes 1.36; this is API overlap, not exact minor equivalence |
+| Kopf / AsyncSSH | Locked 1.45.1 / 2.24.1 after [#306](https://github.com/alpininsight/capi-provider-ssh/pull/306) | Keep dependency changes with their actual image/lifecycle evidence |
+| Kubernetes Python client | Locked 37.0.1; used Core, Coordination and CustomObjects APIs tested against 1.34.11 | The client is generated for Kubernetes 1.37; this is API overlap, not exact minor equivalence |
 | OCI architectures | Published linux/amd64 and linux/arm64 | Required hosted Kind lifecycle runs on linux/amd64; publication is not arm64 hardware certification |
 | kubeadm configuration | v1beta3 maps and v1beta4 name/value arguments | Unknown versions fail closed; not a general cloud-init implementation |
 | Target hosts | Pre-provisioned Linux, verified SSH, root-capable operations, flock and a prepared kubeadm/runtime baseline | No OS installer, disk erasure guarantee or all-distribution certification |
@@ -52,7 +73,7 @@ under review; historical counts are not a substitute.
 | Bootstrap and failover | Implemented | Real CAPI init/joins, durable receipts, provider takeover and no duplicate bootstrap in the Kind lane |
 | CAPI pause | Implemented | Owner-chain pause, missing/recreated owners and API denial prevent new remote work; accepted commands can continue |
 | Lifecycle conditions | Implemented in this source; legacy contract retained | Pause/Unknown reporting, stable status transition times, observed generations and cleanup readiness/receipt status; see [API semantics](api-reference.md#lifecycle-conditions) |
-| Python distribution metadata | Release-derived for versioned builds | Wheel/sdist and isolated rebuild retain version, MPL-2.0 license file and project URLs; unversioned source explicitly identifies itself as such; no PyPI publication claim |
+| Python distribution metadata | Release-derived for versioned builds | Wheel/sdist and isolated rebuild retain version, Apache-2.0 license and NOTICE files and project URLs; unversioned source explicitly identifies itself as such; no PyPI publication claim |
 | Reboot remediation | Implemented, in-band SSH | Completion requires changed boot ID; Unknown is not automatically replayed and blocks unresolved cleanup |
 | Controller HA | Two replicas with mandatory peering, host Leases and remote fencing | Requires eligible placement and a healthy management API/network; no end-to-end recovery SLO |
 | SDK responsiveness | Bounded worker execution with per-request connect/read timeouts in this source | Slow API and cancellation regression tests; dedicated Lease capacity, preserved CAS semantics; fleet scale remains uncertified |
@@ -85,9 +106,7 @@ the v1beta2 CAPI contract; a CRD API rename is not automatically required.
 ## Consumer deployment records
 
 The consumer repository owns actual image pins, platform placement and dated
-rollout evidence. For management-cloud, see the private
-[provider VERSION and manifests](https://github.com/alpininsight/insight-lima-k8s-capi/tree/develop/infrastructure/capi/providers/ssh)
-and [readiness/resource rollout PR](https://github.com/alpininsight/insight-lima-k8s-capi/pull/6571).
+rollout evidence; those records are kept outside this public repository.
 Installed CAPI controllers do not imply that the existing VMs are CAPI-managed.
 Recheck Clusters, Machines and provider inventory before every change.
 

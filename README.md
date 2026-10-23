@@ -2,28 +2,37 @@
 
 [![CI](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/ci-python.yml/badge.svg)](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/ci-python.yml)
 [![Container](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/container-build-python.yml/badge.svg)](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/container-build-python.yml)
-[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-brightgreen.svg)](LICENSE)
 
 **Cluster API for the servers you already have.**
 
-Every other Cluster API infrastructure provider creates machines: it calls a
-cloud API, starts a VM, or boots bare metal through a management controller.
-This one adopts machines that already exist. Point it at a Linux host it can
-reach over SSH, and Cluster API manages that host as first-class infrastructure.
+This provider allocates pre-provisioned Linux hosts to Cluster API Machines and
+executes their lifecycle operations over verified SSH. OS installation, network
+preparation and creation of a VM remain with the platform that supplies the host.
+Creating the CAPI resource chain explicitly authorizes the intended lifecycle;
+installing the controller does not adopt existing Kubernetes nodes or clusters.
 
 A Python infrastructure provider for [Cluster API](https://cluster-api.sigs.k8s.io/)
 that bootstraps and cleans up pre-provisioned Linux hosts over authenticated SSH.
 It coordinates host allocation, bootstrap execution, in-band reboot and deletion
 with persistent ownership checks across controller restarts.
 
-- **Survives its own restarts.** Host claims are UID-bound and persisted, so a
-  controller crash never orphans a host or hands the same one out twice.
-- **Two replicas, no single point of failure.** Host Leases and API-aware
-  readiness mean a provider outage leaves running workload pods untouched.
-- **Refuses to lie about teardown.** Failed cleanup quarantines the host and
+- **Persistent ownership across restarts.** UID-bound host claims and durable
+  receipts allow reconciliation to resume; ambiguous ownership blocks new work.
+- **Two coordinated controller replicas.** Peering, host Leases and API-aware
+  readiness protect lifecycle work. Management API and workload availability
+  have their own HA requirements.
+- **Guarded cleanup.** Failed cleanup quarantines the host and
   keeps the finalizer instead of reporting a deletion that did not happen.
-- **In production.** It runs the Alpin Insight management cluster, delivered by
-  GitOps and pinned by image digest.
+- **GitOps delivery.** Alpin Insight deploys the controller in its management
+  cluster with an immutable image pin. Controller installation and acceptance
+  of a CAPI-managed workload cluster are separate results.
+
+Existing-host and SSH approaches are also available in
+[Bring Your Own Host](https://github.com/vmware-tanzu/cluster-api-provider-bringyourownhost)
+and [k0smotron RemoteMachine](https://github.com/k0sproject/k0smotron).
+Evaluate the documented bootstrap, ownership, cleanup and SSH-trust models for
+your environment; this provider does not claim to be the first or only such option.
 
 ## The same provider from a laptop VM to a datacenter
 
@@ -38,18 +47,20 @@ The requirement list is deliberately short.
 
 Nothing in the left column is vendor-specific, so a Lima VM on a MacBook, a
 Proxmox guest in a homelab, a repurposed NUC and a hosted root server are the
-same case, handled by the same provider. Alpin Insight runs both ends of that
-range: local development clusters on notebook VMs, and the production management
-cluster on hosted servers.
+same prepared-host integration model. The disposable Kind lane validates the
+documented lifecycle baseline. A healthy controller installation on hosted
+servers does not establish certification for every host platform or a completed
+workload-cluster lifecycle in that environment.
 
 This is not a claim that Cluster API was previously unusable outside a
 datacenter. The upstream
 [Docker provider](https://github.com/kubernetes-sigs/cluster-api/tree/main/test/infrastructure/docker)
 covers local development, and providers exist for Proxmox, KubeVirt and vSphere.
-The difference is the size of the prerequisite. Metal3 and Tinkerbell need
-out-of-band management hardware, which most homelab and no notebook has.
-Hypervisor providers need that hypervisor's API, which ties the cluster to the
-platform underneath it. This provider needs an SSH login.
+The integration prerequisites differ: bare-metal systems can involve hardware
+inventory, provisioning or network-boot services, while hypervisor providers use
+the selected platform's API. This provider starts with prepared Linux hosts and
+verified SSH access. Compare each provider's actual requirements before choosing
+an approach.
 
 ### Where the hardware plugin fits
 
@@ -105,6 +116,7 @@ certification or a completed workload rollout in a particular environment.
 | Where does it run? | [Architecture](docs/architecture.md): two controller replicas in the management cluster. |
 | How is it installed? | [Installation](docs/installation.md): CRDs, RBAC, Deployment/PDB and GitOps delivery order. |
 | How is it used? | [API and configuration reference](docs/api-reference.md): `SSHHost`, `SSHCluster`, `SSHMachine` and the CAPI ownership chain. |
+| Why can the CAPI fleet be empty? | [Fleet and ownership FAQ](docs/faq.md#why-is-the-capi-fleet-empty-even-though-the-controller-is-healthy): controllers wait for explicitly created workload-cluster resources; existing Nodes are not automatically adopted. |
 | How is it delivered? | [Container delivery](CONTAINER_IMAGES.md): GHCR image, release tag and digest pinning. |
 | What is out of scope? | [Architecture](docs/architecture.md): OS installation, hardware power management, cloud VM creation and a plugin runtime. |
 
@@ -159,7 +171,7 @@ test kubeconfig. Unit success alone does not certify a release or live rollout.
 
 ## License and contribution
 
-[Mozilla Public License 2.0](LICENSE), copyright in [NOTICE](NOTICE). Contributions follow [Conventional Commits](https://www.conventionalcommits.org/)
+[Apache License 2.0](LICENSE), attribution in [NOTICE](NOTICE). Contributions follow [Conventional Commits](https://www.conventionalcommits.org/)
 and the [Developer Certificate of Origin](DCO); sign commits with `git commit -s`.
 Create a working branch from current `develop` and submit a PR back to `develop`.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for review and documentation requirements.

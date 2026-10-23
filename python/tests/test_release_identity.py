@@ -102,6 +102,6 @@ def test_validation_and_publication_consume_the_selected_identity():
     metadata = next(step for step in jobs["build-and-push"]["steps"] if step.get("id") == "meta")
     for field in ["labels", "annotations"]:
         assert "org.opencontainers.image.version=${{ needs.version.outputs.semver }}" in metadata["with"][field]
-        assert "org.opencontainers.image.licenses=MPL-2.0" in metadata["with"][field]
+        assert "org.opencontainers.image.licenses=Apache-2.0" in metadata["with"][field]
     published = next(step for step in jobs["build-and-push"]["steps"] if step.get("id") == "build")
     assert published["with"]["annotations"] == "${{ steps.meta.outputs.annotations }}"

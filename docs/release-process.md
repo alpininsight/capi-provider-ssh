@@ -28,6 +28,36 @@ tag on the build's own commit still permits the matching image version tag; a
 tag on a different commit is preserved. Verify the release tag, image version
 tag and immutable source digest together after publication.
 
+## Changelog release boundaries
+
+Use **git-cliff 2.14.2**, matching the changelog and Python quality workflows.
+Version 2.14 corrected release attribution to use graph reachability; the older
+2.7.0 generator can misattribute late-merged commits even after stable tags are
+reachable. See the [upstream change](https://github.com/orhun/git-cliff/blob/main/website/blog/git-cliff-2.14.0.md).
+Fetch the full remote history and tags, then run from the repository root:
+
+```bash
+git fetch origin --tags
+python3 python/scripts/generate_changelog.py
+```
+
+The wrapper requires all stable tags reachable from `origin/main` to be present
+in the current history. It validates the generated release commit IDs against
+the peeled tags, checks commit ancestry and rejects already published work in
+Unreleased. It renders only that verified context and replaces `CHANGELOG.md`
+after success. Missing history or invalid attribution leaves the existing file
+intact. Maintenance entries remain in the context but are hidden in the
+template, so maintenance-only releases retain dated headings and source links.
+
+After each `develop` → `main` release, fetch and reconcile the new main merge
+commit through a working branch and a PR back to `develop`. Do this before the
+next changelog update, not with direct protected-branch pushes or a job that
+silently synchronizes branches. The changelog workflow deliberately fails if
+the stable history is missing. Never move historical tags or republish images
+to repair documentation. The [Git-history regression tests](../python/tests/test_changelog_generation.py)
+cover missing main-only release merges, annotated tags, maintenance-only releases,
+older topics merged after publication, corrupt contexts and repeat generation.
+
 ## Context7 documentation publication
 
 [`context7.json`](../context7.json) selects `main` as the default documentation
@@ -70,9 +100,15 @@ The non-editable container installation removes the source copy so it cannot
 shadow the installed package's release identity. The OCI version metadata retains
 the selected SemVer; compare using the documented conversion above.
 
-Both artifacts include `LICENSE`, `License-Expression: MPL-2.0`, `License-File` and
-public project URLs. `python/LICENSE` must match the canonical repository license
-byte for byte; changing license terms requires a separate explicit decision.
+Both artifacts include `LICENSE`, `NOTICE`, `License-Expression: Apache-2.0`,
+`License-File` entries and public project URLs. `python/LICENSE` and `python/NOTICE`
+must match the canonical repository files byte for byte; changing license terms requires a separate explicit decision.
+These statements describe this source revision. Released v0.4.8 and earlier
+artifacts retain their published MPL-2.0 identity. The Apache-2.0 + NOTICE change
+was accepted in [#300](https://github.com/alpininsight/capi-provider-ssh/pull/300).
+Release notes for the first stable promotion containing it must describe the
+transition and verify the source, Python metadata and OCI license together. Never
+rewrite a previous release or image to imply it used the new license.
 The artifact check inspects both formats, rebuilds a wheel outside Git and the
 version environment, then imports an isolated installation:
 
@@ -107,6 +143,28 @@ separate consumer evidence below.
 | Reconciliation | Observed GitOps revision and rendered objects | Desired manifests actually delivered |
 | Controller runtime | Actual image IDs, both probes, peers, restart/OOM counters and scheduling | Stable active/standby operation |
 | Workload canary | Bootstrap, Node association, deletion and host reuse | Required only when claiming workload lifecycle delivery |
+
+## Preparing a release and a consumer rollout
+
+Prepare a release PR from `develop` to `main` after its dependent fixes and
+documentation PRs are accepted. Keep its reviewable description grouped by
+behavior, dependencies/security, documentation and license changes. Record the
+candidate source and checks, but calculate the final stable version with the
+release workflow instead of inferring it from a development image tag.
+
+A draft consumer PR can prepare the rollout procedure and verification gates
+before that release exists. It must state the currently deployed image and leave
+the deployable pin unchanged until the stable image and its provenance can be
+verified. An unresolved placeholder or a development image presented as stable
+must not enter an active manifest. Merge the release and accept publication
+before filling the consumer's exact stable digest, source revision and VERSION
+record. Changes to deployment probes, RBAC or CRDs need their own reviewed diff.
+
+If ArgoCD tracks the consumer's `develop` branch, merging the consumer PR can
+start reconciliation immediately. Preparation is not rollout authorization;
+retain the platform's separate release/maintenance decision and live acceptance.
+An empty CAPI inventory changes the lifecycle risk assessment, but does not
+remove controller, registry, API or shared-platform acceptance gates.
 
 For a mirror/relay, test the actual consumer identity and exact image pull path;
 an existing local image cache does not prove registry authorization. Include a

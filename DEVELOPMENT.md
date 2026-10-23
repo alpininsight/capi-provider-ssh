@@ -7,7 +7,7 @@ changes. See [CONTRIBUTING.md](CONTRIBUTING.md) for the PR and DCO requirements.
 
 | Lane | Required tooling |
 |---|---|
-| Unit, contract and loopback transport | uv; Python 3.13 or 3.14; permission to bind loopback ports |
+| Unit, contract and loopback transport | uv; Python 3.13 or 3.14; Git; git-cliff 2.14.2; permission to bind loopback ports |
 | Formatting and hooks | Locked Ruff; pre-commit 4.6.2 as used by CI |
 | Manifest rendering | kubectl with Kustomize support; CI adds kubeconform |
 | Full CAPI lifecycle | Docker, Kind 0.33.0, kubectl 1.34.11 and uv |

@@ -42,14 +42,14 @@ jobs:
           token: ${{ secrets.CHANGELOG_BOT_TOKEN != '' && secrets.CHANGELOG_BOT_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@4076c08d76dba979c11a7285295b0716c1d67908 # v2.87.15
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: git-cliff@2.7.0
+          tool: git-cliff@2.14.2
 
       - name: Generate changelog
         id: generate
         run: |
-          git-cliff --output CHANGELOG.md
+          python3 python/scripts/generate_changelog.py
 
           if [ -n "$(git status --porcelain CHANGELOG.md)" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"

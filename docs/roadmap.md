@@ -45,10 +45,25 @@ plugin decision gates remain below; they are not all assigned to the Q4 mileston
 
 ## Next decision gates
 
+### Q4 2026: clusterctl preparation and ecosystem visibility
+
+The [clusterctl integration plan](clusterctl-integration.md) and
+[epic #316](https://github.com/alpininsight/capi-provider-ssh/issues/316) split this
+work into installation identity (#311), release assets (#312), real install and
+upgrade acceptance (#313), the move/pivot safety decision (#314) and upstream
+visibility/registration (#315). All are tracked in the Q4 milestone. That
+milestone targets decisions and incremental delivery; it does not promise full
+move support or built-in registration during the quarter.
+
+Directory listing, install/upgrade support and move/pivot support are separate
+outcomes. The proposed registered name is `alpininsight-ssh`; neither a new
+provider API group nor a Python SDK is required. Keep the existing ArgoCD owner
+and active consumer identity intact until an explicit migration is reviewed.
+
 | Area | Work before claiming support | Acceptance owner |
 |---|---|---|
 | CAPI contract evolution | Q4 2026 [issue #257](https://github.com/alpininsight/capi-provider-ssh/issues/257): [current gaps and ordered migration](capi-contract-migration.md), API/upgrade decision and upstream compatibility tests | Provider maintainer |
-| Provider packaging | Versioned clusterctl metadata/components and install/upgrade tests | Release maintainer |
+| Provider packaging and visibility | [#316](https://github.com/alpininsight/capi-provider-ssh/issues/316): [five PR-sized packages](clusterctl-integration.md#pr-sized-packages-and-dependencies), including release assets, install/upgrade proof and an explicit move/pivot boundary | Provider/release/CI maintainers |
 | Hardware extensions | Shared asset identity, capability/version negotiation, authorization and cross-protocol fencing | Provider / platform maintainers |
 | First OOB driver | Protocol emulator tests, lost-response/crash tests and an explicitly selected physical canary | Driver maintainer |
 | Production operating envelope | Fleet-scale/soak measurements, resource sizing, recovery objectives and supported OS baselines | Platform owner |
