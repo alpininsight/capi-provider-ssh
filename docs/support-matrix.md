@@ -106,9 +106,7 @@ the v1beta2 CAPI contract; a CRD API rename is not automatically required.
 ## Consumer deployment records
 
 The consumer repository owns actual image pins, platform placement and dated
-rollout evidence. For management-cloud, see the private
-[provider VERSION and manifests](https://github.com/alpininsight/insight-lima-k8s-capi/tree/develop/infrastructure/capi/providers/ssh)
-and [readiness/resource rollout PR](https://github.com/alpininsight/insight-lima-k8s-capi/pull/6571).
+rollout evidence; those records are kept outside this public repository.
 Installed CAPI controllers do not imply that the existing VMs are CAPI-managed.
 Recheck Clusters, Machines and provider inventory before every change.
 

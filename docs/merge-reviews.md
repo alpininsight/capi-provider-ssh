@@ -41,7 +41,7 @@ re-query alerts for subsequent releases.
 | Changelog generation succeeded but `--auto` failed with `Pull request is in clean status` | Gate the current checks explicitly and distinguish normal clean-head merge eligibility from enabling auto-merge; preserve the actual failure category instead of diagnosing permissions generically | CI maintainer; #240 post-merge review records the proposed state-machine coverage |
 | Documentation retained pre-P1 cleanup, RBAC and lock behavior | Review each lifecycle/permission/default claim against code and tests; keep one canonical reference and link from the FAQ | Provider documentation reviewer |
 | A test parameter contained a large raw response body in its generated ID | Use short descriptive parameter IDs so failures remain diagnosable without huge payloads in CI output | Test maintainer |
-| Local tests did not exercise a consumer PR-only pipeline guard | Run the consumer's diff-based guard on the final PR head as well as its full test runner; consume entire streams under pipefail | GitOps change owner; k8s #6571 |
+| Local tests did not exercise a consumer PR-only pipeline guard | Run the consumer's diff-based guard on the final PR head as well as its full test runner; consume entire streams under pipefail | GitOps change owner in the consumer repository |
 
 Upstream sources checked during review: [Python sysconfig](https://docs.python.org/3.14/library/sysconfig.html#installation-paths),
 [Python 3.14 changes](https://docs.python.org/3.14/whatsnew/3.14.html),
@@ -173,8 +173,8 @@ existing isolated suite passed 393 tests before the new counterexamples existed.
 This patch addresses the two P1 findings. The review's cleanup release/reclaim,
 credential-reference rotation during deletion and colliding provider IDs across
 different SSH ports remain separate P2 work. The hardware contract correction
-belongs in `hybrid-hw-foundation`; the CAPI canary definitions and rollout belong
-in `insight-lima-k8s-capi`. Record the correction PR's final checks and merge SHA
+belongs in the hardware foundation repository; the CAPI canary definitions and
+rollout belong in the consumer GitOps repository. Record the correction PR's final checks and merge SHA
 in its follow-up review, rather than claiming a local test is a completed rollout.
 
 ## 2026-10-19: lifecycle, positioning and dependency follow-up
@@ -250,7 +250,7 @@ its follow-up comment.
 | The support matrix described Apache-2.0 as develop-only and called v0.4.8 latest, which would become stale at the release merge | Describe the checked-out revision's license, link the current release dynamically and retain v0.4.8 only as historical provenance | Documentation reviewer; [#320 review](https://github.com/alpininsight/capi-provider-ssh/pull/320#discussion_r4316826280) |
 | Changelog generation succeeded while main-only release merge commits were absent from develop; git-cliff 2.7.0 also misattributed commits after reconciliation | Reconcile accepted main history through a PR; pin git-cliff 2.14.2 in generation and required Python jobs; validate tag identities and graph membership before replacing the file | Release/CI owner; [#318](https://github.com/alpininsight/capi-provider-ssh/issues/318) and real diverged-history regression tests |
 | Filtering maintenance entries could remove an entire stable release boundary | Keep maintenance commits in the verified context and suppress their entries only in the template; require every stable tag to be represented | Release owner; annotated maintenance-only fixture and source-linked release headings |
-| A documentation-only consumer preparation merge can be mistaken for a deployed provider update | Verify the actual files and image pin after merge; require later registry, GitOps and runtime evidence | Platform owner; [consumer #7688](https://github.com/alpininsight/insight-lima-k8s-capi/pull/7688) changed operations/preparation documents only |
+| A documentation-only consumer preparation merge can be mistaken for a deployed provider update | Treat consumer documentation changes as preparation only; a provider update is established solely by the consuming deployment's own evidence | Consumer repository owner |
 
 ## 2026-10-23: public documentation and external SSH scheduling
 
