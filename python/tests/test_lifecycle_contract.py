@@ -432,7 +432,7 @@ def test_external_etcd_control_plane_join_uses_existing_cluster_config(version):
 @pytest.mark.parametrize("failure", ["changed-holder", "api-unavailable"])
 @pytest.mark.timeout(3)
 async def test_lease_loss_interrupts_local_work_without_releasing_a_new_owner(api, monkeypatch, failure):
-    monkeypatch.setattr("capi_provider_ssh.operations.LEASE_SECONDS", 0.04)
+    monkeypatch.setattr("capi_provider_ssh.operations.LEASE_RENEW_SECONDS", 0.01)
 
     def lose_lease(self):
         current = next(iter(api.leases.values()))

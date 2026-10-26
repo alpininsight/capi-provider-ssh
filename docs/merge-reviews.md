@@ -41,7 +41,7 @@ re-query alerts for subsequent releases.
 | Changelog generation succeeded but `--auto` failed with `Pull request is in clean status` | Gate the current checks explicitly and distinguish normal clean-head merge eligibility from enabling auto-merge; preserve the actual failure category instead of diagnosing permissions generically | CI maintainer; #240 post-merge review records the proposed state-machine coverage |
 | Documentation retained pre-P1 cleanup, RBAC and lock behavior | Review each lifecycle/permission/default claim against code and tests; keep one canonical reference and link from the FAQ | Provider documentation reviewer |
 | A test parameter contained a large raw response body in its generated ID | Use short descriptive parameter IDs so failures remain diagnosable without huge payloads in CI output | Test maintainer |
-| Local tests did not exercise a consumer PR-only pipeline guard | Run the consumer's diff-based guard on the final PR head as well as its full test runner; consume entire streams under pipefail | GitOps change owner; k8s #6571 |
+| Local tests did not exercise a consumer PR-only pipeline guard | Run the consumer's diff-based guard on the final PR head as well as its full test runner; consume entire streams under pipefail | GitOps change owner in the consumer repository |
 
 Upstream sources checked during review: [Python sysconfig](https://docs.python.org/3.14/library/sysconfig.html#installation-paths),
 [Python 3.14 changes](https://docs.python.org/3.14/whatsnew/3.14.html),
@@ -173,6 +173,92 @@ existing isolated suite passed 393 tests before the new counterexamples existed.
 This patch addresses the two P1 findings. The review's cleanup release/reclaim,
 credential-reference rotation during deletion and colliding provider IDs across
 different SSH ports remain separate P2 work. The hardware contract correction
-belongs in `hybrid-hw-foundation`; the CAPI canary definitions and rollout belong
-in `insight-lima-k8s-capi`. Record the correction PR's final checks and merge SHA
+belongs in the hardware foundation repository; the CAPI canary definitions and
+rollout belong in the consumer GitOps repository. Record the correction PR's final checks and merge SHA
 in its follow-up review, rather than claiming a local test is a completed rollout.
+
+## 2026-10-19: lifecycle, positioning and dependency follow-up
+
+This refresh follows the accepted v0.4.8 release and the separately merged
+[Lease test correction #309](https://github.com/alpininsight/capi-provider-ssh/pull/309)
+at `65b10f09d6f098068855ae78a72962e49ac506f3`. #309 passed all eight required
+checks, including the real Kind lifecycle; #308 closed after merge. Dependency
+[#306](https://github.com/alpininsight/capi-provider-ssh/pull/306) then integrated
+the correction and passed its own final-head checks, including
+[Python/Kind CI](https://github.com/alpininsight/capi-provider-ssh/actions/runs/39259607530)
+and [package/container validation](https://github.com/alpininsight/capi-provider-ssh/actions/runs/39259607846).
+It merged at `fac36a9b5e849befbd64bc25f4ffc616da2c4a3b`. Its previous failing run
+was not made successful by #309's results.
+
+| Escaped gap / recurring pattern | Concrete prevention | Acceptance / owner |
+|---|---|---|
+| #280 counted an extra unadopted template clone as a fifth workload Machine | Follow the CAPI Machine reference and matching owner UID when checking SSHMachine conditions; retain negative controls and safe timeout diagnostics | Provider/CI; keep the real lifecycle gate and its cleanup/reuse/failover assertions |
+| A later README change claimed uniqueness and that the provider ran the management cluster; healthy installed controllers and a CI run did not establish either | Compare alternatives and require matching CAPI ownership/workload evidence for deployment claims; document intentional empty fleets | Documentation reviewer; verify claims against implementation and dated consumer evidence |
+| The #306 Lease test patched an integer Kubernetes API field to a fraction; client 37's model validation failed before the intended Lease-loss branch | Keep Lease duration integer and accelerate only the separate renewal cadence; inspect the original cause before attributing a failure to Kopf | #309; require new Python and Kind checks with the updated dependency lock |
+| Stable publication and live adoption drifted apart while both remained individually healthy | Track source, stable release/image, consumer pin, Argo state and actual workload acceptance separately | Release/platform owner; a prepared PR is not a rollout |
+| An automatic changelog merge moved develop while #306's first refreshed CI was running | Recheck the base immediately before merge and update the dependent PR; never reuse the superseded checks or bypass strict freshness | Integrator; #306 passed again after integrating #310 |
+| The scheduled external SSH lane repeatedly failed configuration preflight | Opt in to nightly tests only after configuring an approved disposable target and independently verified trust; manual and enabled runs retain the explicit failing gate | Platform/CI owner; [external SSH configuration](ci-governance.md#external-ssh-test-configuration) plus a successful actual run |
+| Post-merge notes lagged behind later PRs | Extend this record with escaped findings, prevention and exact acceptance; put private execution evidence in the consumer record | Each change owner; check the record before preparing a release |
+| An issue-only release audit missed fresh High advisories in the runtime lock and open CodeQL findings | Recheck Dependabot, CodeQL and the final image scan independently of issue labels; update available vulnerable runtime dependencies before promotion | Release/security owner; 2026-10-20 follow-up below |
+
+### 2026-10-20 security preflight
+
+The required image scan for [#321](https://github.com/alpininsight/capi-provider-ssh/pull/321)
+found two High findings in aiohttp 3.14.3; its earlier green runs did not establish
+the current advisory state. Update aiohttp to 3.14.4 and multidict to 6.9.1,
+with the compatible yarl 1.25.1 resolution. Keep the High/Critical scan gate.
+References: [aiohttp request timeout advisory](https://github.com/advisories/GHSA-5wr8-gcqf-gqf3),
+[aiohttp resource use advisory](https://github.com/advisories/GHSA-2g87-pp6c-29x5)
+and [multidict reference leak](https://github.com/advisories/GHSA-54p9-h82j-f925).
+
+Four CodeQL findings treated Kubernetes API-group prefix checks as URL filtering.
+They did not establish an exploitable URL allowlist. Use one exact group/version
+parser instead, with valid-owner/pause tests and foreign/malformed-owner negative
+controls. Explicitly set TLS 1.2 as the minimum for the loopback TLS test server.
+Require fresh CodeQL and real Kind lifecycle results; do not suppress alerts to
+obtain a release gate. OAuthlib server-side Medium advisories and the broader
+container audit remain tracked in [#222](https://github.com/alpininsight/capi-provider-ssh/issues/222);
+this correction does not claim that audit is complete.
+
+The first new lifecycle runs on #321 and #322 failed before the first workload
+control plane initialized. Their sanitized host errors reported kubeadm admin
+bootstrap API connection refusal/deadline expiry. The last successful
+[develop lifecycle](https://github.com/alpininsight/capi-provider-ssh/actions/runs/39295803434/job/118207932342)
+used Ubuntu 24.04 (`20261012.334.1`); the
+[failed security run](https://github.com/alpininsight/capi-provider-ssh/actions/runs/39436626161/job/118675218327)
+used Ubuntu 26.04 (`20261012.163.1`) through `ubuntu-latest`. Pin the lifecycle
+job to its validated `ubuntu-24.04` host and require the unchanged full test.
+This bounds the observed host-platform regression; the exact kernel/runtime
+mechanism on Ubuntu 26.04 remains to be isolated in a separate qualification.
+Do not add a blind retry, skip bootstrap or increase the acceptance timeout.
+
+The October refresh's local baseline passed 431 isolated tests with 86% coverage
+and Ruff checks. Those results exclude the integration/e2e/kind markers and are
+not a physical workload soak. No live reset, host adoption or management-cluster
+move was performed. The historical P2 items above are not declared resolved by
+this documentation change.
+
+## 2026-10-20: release preparation after #320 review
+
+The release review found two gaps despite green source checks. The correction
+belongs before promotion, while publication and consumer rollout remain separate
+acceptance stages. Record this preparation PR's final checks and merge commit in
+its follow-up comment.
+
+| Escaped gap / recurring pattern | Concrete prevention | Acceptance / owner |
+|---|---|---|
+| The support matrix described Apache-2.0 as develop-only and called v0.4.8 latest, which would become stale at the release merge | Describe the checked-out revision's license, link the current release dynamically and retain v0.4.8 only as historical provenance | Documentation reviewer; [#320 review](https://github.com/alpininsight/capi-provider-ssh/pull/320#discussion_r4316826280) |
+| Changelog generation succeeded while main-only release merge commits were absent from develop; git-cliff 2.7.0 also misattributed commits after reconciliation | Reconcile accepted main history through a PR; pin git-cliff 2.14.2 in generation and required Python jobs; validate tag identities and graph membership before replacing the file | Release/CI owner; [#318](https://github.com/alpininsight/capi-provider-ssh/issues/318) and real diverged-history regression tests |
+| Filtering maintenance entries could remove an entire stable release boundary | Keep maintenance commits in the verified context and suppress their entries only in the template; require every stable tag to be represented | Release owner; annotated maintenance-only fixture and source-linked release headings |
+| A documentation-only consumer preparation merge can be mistaken for a deployed provider update | Treat consumer documentation changes as preparation only; a provider update is established solely by the consuming deployment's own evidence | Consumer repository owner |
+
+## 2026-10-23: public documentation and external SSH scheduling
+
+| Escaped gap / recurring pattern | Concrete prevention | Acceptance / owner |
+|---|---|---|
+| Green technical checks did not detect private consumer links and internal acceptance details in public documentation | Review documentation and PR descriptions for audience and link visibility before promotion; retain generic consumer boundaries and keep internal evidence with its owner | Documentation reviewer; [#325](https://github.com/alpininsight/capi-provider-ssh/issues/325) and [#326](https://github.com/alpininsight/capi-provider-ssh/pull/326); removing current text does not rewrite history |
+| Nightly external SSH runs repeatedly failed before any test because no target or trust was configured | Require explicit schedule opt-in after a successful approved manual run; report disabled schedules as not run and preserve failing preflight for requested tests | CI owner; executable schedule-selection and missing-configuration regressions, plus [activation procedure](ci-governance.md#external-ssh-test-configuration) |
+
+The schedule change does not supply an external target or establish transport,
+workload lifecycle or consumer rollout acceptance. Record final checks and the
+actual merge result in the corresponding PR follow-up.

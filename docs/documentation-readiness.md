@@ -1,10 +1,19 @@
 # Documentation and OSS readiness
 
-Updated: **2026-09-08**, for the priority-fix source based on develop
-`9ac6495d8a367e15752bf3f62ae26c7a3f960bcb`. The initial audit used the v0.4.3
-product baseline after PRs #255/#256. Implementation below describes this
-checked-out source; published v0.4.3 artifacts and consumer deployments are not
-retroactively changed. This is not an OpenSSF certification or SLA.
+Updated: **2026-10-20**. The initial September audit used the v0.4.3 baseline.
+Implementation below describes the checked-out source, which uses Apache-2.0
+with NOTICE after #300. Historical v0.4.8 retains MPL-2.0; use the
+[latest published release](https://github.com/alpininsight/capi-provider-ssh/releases/latest)
+and its tag-specific source/image evidence for the current stable identity.
+Published artifacts and consumer deployments are not retroactively changed.
+This is not an OpenSSF certification or SLA.
+
+The refresh corrected the README's first/only-provider and management-cluster
+ownership claims. A healthy controller installation can have no managed
+workload resources; the [fleet FAQ](faq.md#why-is-the-capi-fleet-empty-even-though-the-controller-is-healthy)
+explains the missing ownership chain. The external SSH lane currently lacks its
+approved target/trust configuration, and release-specific clusterctl assets and
+move/pivot acceptance remain open. Private live snapshots stay consumer-owned.
 
 The current documentation substantially covers the implemented provider and
 states its support boundaries. A wholesale rewrite is not the next dependency.
@@ -40,7 +49,7 @@ Other rows are recommended priorities or existing gates, not newly promised date
 | Priority / tracking | Current finding | Work and acceptance owner |
 |---|---|---|
 | Security operations — intake configured, policy implemented | Private reporting is enabled; repository administrators own triage. The latest stable minor is maintained on a best-effort basis | Follow [SECURITY.md](../SECURITY.md) and [maintenance/backports](maintenance-policy.md); verify the channel and reviewer availability before releases |
-| Distribution metadata — implemented in this source | Versioned builds derive package identity from release GitVersion; wheel/sdist include the intended MPL-2.0 license and public URLs. Source without release input is explicitly unversioned | The required artifact gate builds both formats, rebuilds outside Git/version environment and imports the installed package; see [package identity](release-process.md#python-package-identity-and-license-verification). Older published artifacts are unchanged; GitHub license-text recognition remains a separate classification question |
+| Distribution metadata — implemented in this source | Versioned builds derive package identity from release GitVersion; wheel/sdist include the intended Apache-2.0 license, NOTICE and public URLs. Source without release input is explicitly unversioned | The required artifact gate builds both formats, rebuilds outside Git/version environment and imports the installed package; see [package identity](release-process.md#python-package-identity-and-license-verification). Older published artifacts are unchanged; GitHub license-text recognition remains a separate classification question |
 | Lifecycle conditions — implemented before full Q4 migration | Cleanup updates readiness and durable cleanup conditions, pause reports True/False/Unknown, timestamps and observed generations are maintained. A release failure after cleanup cannot erase its success receipt | Stateful regressions and real API/Kind assertions cover the reporting contract; retain final-head CI evidence. Actual v1beta2 and automatic remediation acceptance remain in [#257](https://github.com/alpininsight/capi-provider-ssh/issues/257) |
 | Q4 2026 — [#257](https://github.com/alpininsight/capi-provider-ssh/issues/257) | Legacy CAPI API/reference paths, CRD contract labels, template metadata and v1beta2/upgrade evidence remain open | Provider/CI maintainers complete the six migration steps; release/platform owners retain separate release and consumer acceptance. Keep current HA, receipts and UID fencing |
 | Before claiming external host acceptance — existing test gap | Repository-level E2E target variables and secrets are not configured at review. Hosted routing and disposable Kind tests do not establish an approved external endpoint result | Platform/CI owners supply an approved disposable target and independently verified trust through secure configuration, run bootstrap/delete/reuse and retain redacted results. No credentials belong in an issue or documentation |

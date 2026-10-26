@@ -361,6 +361,66 @@ def test_empty_or_ambiguous_policy_is_rejected(tmp_path, checks):
         guard.Policy.load(path)
 
 
+@pytest.mark.parametrize(
+    "event,enabled,run_tests",
+    [
+        ("schedule", "", False),
+        ("schedule", "false", False),
+        ("schedule", "TRUE", False),
+        ("schedule", "true", True),
+        ("workflow_dispatch", "", True),
+        ("workflow_dispatch", "false", True),
+        ("workflow_dispatch", "true", True),
+    ],
+)
+def test_external_e2e_schedule_requires_opt_in_but_manual_runs_cannot_skip_preflight(
+    tmp_path, event, enabled, run_tests
+):
+    workflow = yaml.load((ROOT / ".github/workflows/e2e-ssh.yml").read_text(), Loader=yaml.BaseLoader)
+    configuration = workflow["jobs"]["configuration"]
+    step = configuration["steps"][0]
+    output = tmp_path / "output"
+    summary = tmp_path / "summary"
+    result = subprocess.run(
+        ["/bin/bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env={
+            "EVENT_NAME": event,
+            "SCHEDULE_ENABLED": enabled,
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_STEP_SUMMARY": str(summary),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert step["env"] == {
+        "EVENT_NAME": "${{ github.event_name }}",
+        "SCHEDULE_ENABLED": "${{ vars.E2E_SSH_ENABLED }}",
+    }
+    assert output.read_text().strip() == f"enabled={str(run_tests).lower()}"
+    assert configuration["outputs"] == {"enabled": "${{ steps.select.outputs.enabled }}"}
+    assert step["id"] == "select"
+    job = workflow["jobs"]["e2e-ssh"]
+    assert job["needs"] == "configuration"
+    assert job["if"] == "needs.configuration.outputs.enabled == 'true'"
+    if run_tests:
+        # Selection cannot turn an unconfigured requested lane into a green skip.
+        preflight = subprocess.run(
+            ["/bin/bash", "-c", job["steps"][0]["run"]],
+            cwd=tmp_path,
+            env={},
+            capture_output=True,
+            text=True,
+        )
+        assert preflight.returncode == 1
+        assert "Missing approved external SSH test configuration" in preflight.stdout
+    else:
+        assert "not run" in summary.read_text()
+        assert "not external SSH test or rollout acceptance" in summary.read_text()
+        assert "no SSH tests ran" in result.stdout
+
+
 @pytest.mark.parametrize("missing", ["E2E_SSH_HOST", "E2E_SSH_PRIVATE_KEY", "E2E_SSH_KNOWN_HOSTS", None])
 def test_external_e2e_preflight_runs_before_checkout_without_disclosing_secrets(tmp_path, missing):
     workflow = yaml.load((ROOT / ".github/workflows/e2e-ssh.yml").read_text(), Loader=yaml.BaseLoader)
