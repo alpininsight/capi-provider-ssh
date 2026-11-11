@@ -1,15 +1,10 @@
-FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS base
+FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS base
 
-# Apply Trixie security fixes not yet included in the pinned upstream image.
+# The pinned Trixie base includes APT 3.0.4 and the prior security updates.
+# Apply the zlib security fix which is not yet included in that base.
 RUN apt-get update && \
     apt-get install --yes --no-install-recommends --only-upgrade \
-        gzip=1.13-1+deb13u1 \
-        libpcre2-8-0=10.46-1~deb13u3 \
-        libsqlite3-0=3.46.1-7+deb13u2 \
-        libssl3t64=3.5.7-1~deb13u3 \
-        openssl=3.5.7-1~deb13u3 \
-        openssl-provider-legacy=3.5.7-1~deb13u3 \
-        perl-base=5.40.1-6+deb13u1 && \
+        zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 && \
     rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution

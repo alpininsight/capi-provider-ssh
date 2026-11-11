@@ -10,6 +10,8 @@ dependencies = [
     "kopf>=1.37,<2",
     "kubernetes>=32,<38",
     "asyncssh>=2.20,<3",
+    # Security floor for the Kubernetes client's transitive OAuth dependency.
+    "oauthlib>=4.0.1,<5",
 ]
 
 [project.urls]

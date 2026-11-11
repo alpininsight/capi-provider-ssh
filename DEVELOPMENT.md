@@ -7,10 +7,10 @@ changes. See [CONTRIBUTING.md](CONTRIBUTING.md) for the PR and DCO requirements.
 
 | Lane | Required tooling |
 |---|---|
-| Unit, contract and loopback transport | uv; Python 3.13 or 3.14; Git; git-cliff 2.14.2; permission to bind loopback ports |
+| Unit, contract and loopback transport | uv; Python 3.13 or 3.14; Git; git-cliff 2.14.2; curl; permission to bind loopback ports |
 | Formatting and hooks | Locked Ruff; pre-commit 4.6.2 as used by CI |
 | Manifest rendering | kubectl with Kustomize support; CI adds kubeconform |
-| Full CAPI lifecycle | Docker, Kind 0.33.0, kubectl 1.34.11 and uv |
+| Full CAPI lifecycle | Docker, Kind 0.33.0, kubectl 1.34.11, curl and uv |
 | Release version validation | GitVersion 6.8.x through the release workflow |
 
 Python dependencies are locked in [python/uv.lock](python/uv.lock).
@@ -59,6 +59,13 @@ creates an isolated Kind management cluster and disposable SSH/kubeadm hosts;
 allow approximately 8 GB Docker RAM and 30 minutes. It uses an explicit generated
 kubeconfig and verified upstream assets. Never point this destructive lane at a
 shared or production management cluster.
+
+The prerequisite installer uses curl with certificate verification and HTTPS-only
+redirects. Each pinned asset has at most three attempts, a 10-second connection
+timeout, a 20-second attempt timeout, a 60-second total process budget and a
+64 MiB size limit. Transient HTTP errors can be retried; a SHA-256 mismatch fails
+without retry. Every asset must pass download, hash and YAML validation before
+the first apply. The limits do not extend the lifecycle or controller deadlines.
 
 A failed run retains diagnostic state. Follow [testing](docs/testing.md) before
 cleanup; retain Secrets and finalizers until normal CAPI deletion succeeds.
