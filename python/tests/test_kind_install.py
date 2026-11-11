@@ -49,8 +49,8 @@ def asset_server(tmp_path, monkeypatch):
             state["requests"].append(self.headers.get("Authorization"))
             status = state["statuses"][min(len(state["requests"]) - 1, len(state["statuses"]) - 1)]
             self.send_response(status)
-            if state.get("redirect"):
-                self.send_header("Location", state["redirect"])
+            if state.get("redirect_http"):
+                self.send_header("Location", "http://localhost/asset")
             self.send_header("Content-Length", str(len(state["body"])))
             self.end_headers()
             if state.get("stall"):
@@ -125,7 +125,7 @@ def test_untrusted_tls_never_fetches_a_manifest(asset_server, monkeypatch):
 
 def test_https_redirect_cannot_downgrade_to_http(asset_server):
     state, asset = asset_server
-    state.update(statuses=[302], redirect=asset["url"].replace("https:", "http:"))
+    state.update(statuses=[302], redirect_http=True)
     with pytest.raises(RuntimeError, match="download failed"):
         install.download_asset(asset)
     assert len(state["requests"]) == 1
