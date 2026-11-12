@@ -139,6 +139,7 @@ separate consumer evidence below.
 |---|---|---|
 | Reviewed source | PR head, merged commit and exact completed checks | No unresolved required failure or cancellation |
 | Published image | OCI index, platform digests, source labels, scan and provenance/SBOM | Correct source for each advertised architecture |
+| Consumer delivery gate | Accepted gate source and actual caller run, exact index/platform/config and required blobs through the normal authenticated mirror path | Both security acceptance and blocking delivery-gate acceptance precede GitOps promotion |
 | Consumer review | GitOps PR, CRD/RBAC ordering, immutable pin and resource/placement diff | Registry and platform prerequisites verified |
 | Reconciliation | Observed GitOps revision and rendered objects | Desired manifests actually delivered |
 | Controller runtime | Actual image IDs, both probes, peers, restart/OOM counters and scheduling | Stable active/standby operation |
@@ -171,6 +172,18 @@ an existing local image cache does not prove registry authorization. Include a
 negative identity check when changing admission. Preserve maintenance cordons and
 other operators' work. A namespace-audit Job has different permissions from the
 controller and must use its own operation contract.
+
+Security remediation and delivery-gate integration may proceed in parallel, but
+neither acceptance substitutes for the other. Keep the consumer PR in Draft with
+auto-merge disabled until both receipts identify the intended source and immutable
+image. The gate must block the actual promotion path, including applicable
+digest-pin shortcuts. Inventory both repository rulesets and classic branch
+protection; their required checks are cumulative. A local helper test or an
+optional successful CI job does not prove that the caller enforces the gate.
+Missing approved reader custody or access to the normal mirror path remains a
+blocker; do not mint credentials or bypass the mirror to manufacture acceptance.
+An audit using `imagePullPolicy: Always` can reuse local image layers. Record a
+separately scoped cold-node audit when claiming acceptance without cached layers.
 
 ## Upgrade and recovery
 

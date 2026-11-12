@@ -10,6 +10,7 @@ controller pods do not replace a lifecycle test.
 |---|---|---|
 | Unit and stateful contract tests | UID/resourceVersion persistence, allocation, pause, cleanup, reboot, Lease failure and crash-boundary behavior | Real API admission or all network failures |
 | Loopback SSH and TLS | Real host-key verification, private transfer, API certificate/hostname verification, token rotation, denial and stalled responses | Reachability or identity of a production host |
+| Kind prerequisite download over loopback TLS | Bounded transient retries, certificate verification, HTTPS-only redirects, size/hash rejection and no apply before all assets validate | Upstream availability or actual CAPI lifecycle acceptance |
 | Real API integration in Kind | Structural CRDs, defaults, status subresources, controller reconciliation, readiness and concurrent probe memory behavior | Every Kubernetes version or hardware platform |
 | Full CAPI lifecycle in Kind | CABPK/KCP init/join, providerID association, deletion/reuse and takeover during bootstrap | A production SLA or external-etcd availability |
 | Package artifacts and container metadata | Release-derived version, included license/project URLs, sdist rebuild outside Git and matching installed runtime identity | PyPI publication or repair of historical releases |
@@ -79,10 +80,17 @@ See [CI governance](ci-governance.md) for routing and external target setup.
   failure result, without credential disclosure or retries.
 - Concurrent exec probes stay within the declared cgroup budget, with zero OOM
   kills and unchanged controller process/restart identity.
+- Upstream manifest 503/504 responses may retry within the original download
+  budget. Permanent errors, untrusted TLS, HTTP downgrade, oversized or stalled
+  bodies and hash mismatches fail without applying any prerequisites. User curl
+  configuration cannot inject request headers; errors omit response bodies and
+  URL query data. These tests use a real temporary TLS server and curl, without
+  external network access.
 
 Source pointers: [stateful lifecycle tests](../python/tests/test_lifecycle_contract.py),
 [bootstrap receipts](../python/tests/test_durable_bootstrap.py),
 [TLS transport](../python/tests/test_readiness_transport.py),
+[prerequisite download faults](../python/tests/test_kind_install.py),
 [Kind lifecycle](../python/tests/kind/test_lifecycle.py).
 
 ### Kind failure diagnostics

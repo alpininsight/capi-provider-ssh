@@ -262,3 +262,26 @@ its follow-up comment.
 The schedule change does not supply an external target or establish transport,
 workload lifecycle or consumer rollout acceptance. Record final checks and the
 actual merge result in the corresponding PR follow-up.
+
+## 2026-11-11: v0.4.9 security and delivery follow-up
+
+A fresh scan of the published v0.4.9 image found six fixable High package findings
+on each runtime architecture: two APT package records, two zlib findings and two
+OAuthlib findings. The release's earlier green scan did not establish the later
+advisory state. This is a package finding, not proof of exploitability through
+the controller. The corrective source and its final CI/publication receipts
+remain separate from the historical release and consumer acceptance; see
+[#222](https://github.com/alpininsight/capi-provider-ssh/issues/222).
+
+| Escaped gap / recurring pattern | Concrete prevention | Acceptance / owner |
+|---|---|---|
+| A pinned image and an earlier clean scan were treated as sufficient for a later promotion | Refresh the vulnerability database and scan both immutable release platforms before promotion; remediate through a new release without retagging history | Release/security owner; retain source, package versions, scanner version and image identities |
+| Updating the base alone still left the zlib fix absent; changing only the lockfile would not constrain unlocked package installs | Verify the installed OS package versions on both architectures, explicitly install the remaining fixed zlib version and add the OAuthlib security floor to package metadata as well as the lock | Runtime owner; preserve non-root execution, installer removal and the existing scan policy |
+| An upstream HTTP 504 failed the Kind job before lifecycle acceptance | Retry only bounded prerequisite GETs with TLS and SHA-256 verification; exercise real TLS faults and reject all failed assets before any apply | CI owner; require the unchanged real lifecycle/failover lane after the downloader correction |
+| A consumer required-check inventory read only rulesets and missed classic branch protection | Read both protection APIs and take their required-check union; prove the new delivery gate blocks the actual caller and any applicable digest-pin shortcut | Consumer/CI owner; no protection bypass or weakening |
+| A local delivery helper or a cached image pull could be mistaken for actual caller or cold-node acceptance | Record the gate source, consumer run, approved identity/path and immutable platform/blob receipts; record cold-node acceptance separately | Consumer/platform owner; keep GitOps promotion blocked until security and delivery-gate acceptance both exist |
+
+This entry records findings and prevention identified after the release. It does
+not assert that the corrective PR has merged, a new stable image has been
+published, or a consumer has deployed it. Record those results in the corrective
+PR follow-up after each stage completes.
