@@ -32,21 +32,21 @@ jobs:
           persist-credentials: false
 
       - name: Set up .NET SDK
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
         env:
           DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
         with:
           dotnet-version: 8.0.x
 
       - name: Set up GitVersion
-        uses: gittools/actions/gitversion/setup@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
+        uses: gittools/actions/gitversion/setup@389fe43e6b0189b98c40c43553070ac029304635 # v5.0.0
         with:
           versionSpec: 6.8.x
           preferLatestVersion: true
 
       - name: Calculate version
         id: gitversion
-        uses: gittools/actions/gitversion/execute@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
+        uses: gittools/actions/gitversion/execute@389fe43e6b0189b98c40c43553070ac029304635 # v5.0.0
         with:
           configFilePath: GitVersion.yml
           overrideConfig: |
