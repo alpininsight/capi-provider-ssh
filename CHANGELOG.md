@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+- **security:** Update runtime fixes and bound prerequisite downloads
+- **changelog:** Bring v0.4.9 / main into develop
+- **image:** Take Debian's fixes for the base image packages
+
+
+### Testing
+
+- **kind:** Use a fixed downgrade redirect fixture
+
+## [0.4.9](https://github.com/alpininsight/capi-provider-ssh/releases/tag/v0.4.9) - 2026-10-26
+
+Source: [v0.4.9](https://github.com/alpininsight/capi-provider-ssh/tree/d95fb51c28e95d5b6244981338b3448f818d99e4)
+
+### Bug Fixes
+
 - **lease:** Keep the Lease duration an integer and make renewal cadence its own setting
 - **release:** Preserve stable changelog boundaries and promotion metadata
 - **security:** Refresh vulnerable runtime dependencies and clarify owner identity
