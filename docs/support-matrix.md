@@ -1,6 +1,6 @@
 # Support and validation matrix
 
-Reviewed: **2026-10-20**. This is the product compatibility reference for the
+Documentation reviewed: **2026-11-26**. This is the product compatibility reference for the
 checked-out source, not a live deployment dashboard. A published architecture,
 passing contract test and certified physical workload are different claims.
 The latest published stable minor is maintained under the
@@ -53,8 +53,8 @@ or a change in the live consumer deployment.
 | CAPI core / CABPK / KCP | 1.12.11, aligned components; tested upgrade bridge from 1.9.2 | The next supported upgrade is a separate validation stage |
 | Provider API | `infrastructure.alpininsight.ai/v1beta1`, namespaced structural CRDs | Legacy v1beta1 CAPI contract; no complete v1beta2 conformance claim |
 | Python | Source minimum 3.13; unit matrix 3.13/3.14; container Python 3.14 | Later Python minors are not validated |
-| Kopf / AsyncSSH | Locked 1.45.1 / 2.24.1 after [#306](https://github.com/alpininsight/capi-provider-ssh/pull/306) | Keep dependency changes with their actual image/lifecycle evidence |
-| Kubernetes Python client | Locked 37.0.1; used Core, Coordination and CustomObjects APIs tested against 1.34.11 | The client is generated for Kubernetes 1.37; this is API overlap, not exact minor equivalence |
+| Kopf / AsyncSSH | Locked 1.45.2 / 2.24.1; see the checked-in lockfile | Keep dependency changes with their actual image/lifecycle evidence |
+| Kubernetes Python client | Locked 37.0.2; used Core, Coordination and CustomObjects APIs tested against 1.34.11 | The client is generated for Kubernetes 1.37; this is API overlap, not exact minor equivalence |
 | OCI architectures | Published linux/amd64 and linux/arm64 | Required hosted Kind lifecycle runs on linux/amd64; publication is not arm64 hardware certification |
 | kubeadm configuration | v1beta3 maps and v1beta4 name/value arguments | Unknown versions fail closed; not a general cloud-init implementation |
 | Target hosts | Pre-provisioned Linux, verified SSH, root-capable operations, flock and a prepared kubeadm/runtime baseline | No OS installer, disk erasure guarantee or all-distribution certification |

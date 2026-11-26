@@ -1,5 +1,8 @@
 # API and configuration reference
 
+Start with [getting started](getting-started.md) for the role and object flow.
+This page is the field and state reference for configuring that workflow.
+
 The [structural CRDs](../shared/crds/) are authoritative for accepted fields and
 defaults. All provider resources are namespaced under
 `infrastructure.alpininsight.ai/v1beta1`. The contract is legacy CAPI v1beta1;
