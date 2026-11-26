@@ -56,8 +56,10 @@ old release tags and digests, including the documented
 | `ghcr.io/astral-sh/uv` | Locked Python dependency installation; copied from a digest-pinned image | [Python Dockerfile](python/Dockerfile), [lockfile](python/uv.lock) |
 | Kind node and CAPI controller images | Disposable integration and lifecycle test clusters | [Testing guide](docs/testing.md), [CI configuration](.github/workflows/ci-python.yml) |
 
-The pinned base includes the APT security update; the Dockerfile applies the
-remaining zlib update explicitly. The package metadata also requires OAuthlib
+The pinned base lags behind `trixie-security`; the Dockerfile runs
+`apt-get upgrade` at build time to take every Debian fix for the packages the
+base ships, and its `DEBIAN_FIXES_AS_OF` build argument reruns that cached step
+on purpose. The package metadata also requires OAuthlib
 4.0.1 or later within major version 4, so an unlocked installation cannot select
 the older affected version. These source constraints do not retroactively fix
 published images. Scan each release platform against a fresh vulnerability

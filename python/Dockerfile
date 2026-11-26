@@ -1,10 +1,18 @@
 FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS base
 
-# The pinned Trixie base includes APT 3.0.4 and the prior security updates.
-# Apply the zlib security fix which is not yet included in that base.
-RUN apt-get update && \
-    apt-get install --yes --no-install-recommends --only-upgrade \
-        zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 && \
+# Take every fix Debian serves for the packages the base image ships. The
+# pinned Trixie base lags behind trixie-security: on 2026-11-26 it still
+# carried libzstd1 1.5.7+dfsg-1, which Trivy reports as HIGH (CVE-2026-124851,
+# fixed in +deb13u1). No version pin: the step takes what Debian serves on the
+# day it runs.
+# buildx reuses this layer from its cache while the base image and the lines
+# above stay the same, so the step does not run on every build. When Trivy
+# reports a Debian package with status "fixed", move the date below: that runs
+# the step again.
+ARG DEBIAN_FIXES_AS_OF=2026-11-26
+RUN echo "Debian fixes as of ${DEBIAN_FIXES_AS_OF}" && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade --yes && \
     rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution
