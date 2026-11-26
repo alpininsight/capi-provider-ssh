@@ -79,5 +79,5 @@ repository's own instructions and checks, including diff-based CI guards; its
 full test runner may not execute every PR-only policy gate.
 
 The [test portfolio](docs/testing.md) explains evidence boundaries and temporary
-coverage measurement. A private reusable workflow cannot be invoked directly by
-this public repository; existing local CI documents the public-repository exception.
+coverage measurement. The checked-in workflows are the public contributor contract; no private
+workflow catalog or company-specific runner setup is an installation prerequisite.

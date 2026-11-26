@@ -3,7 +3,7 @@
 Record the exact merged commit, relevant CI/publication evidence and any remaining
 delivery boundary after each merge. PR follow-up comments retain the final status
 when it becomes available after this file's own review. An image publication does
-not establish a management-cloud rollout.
+not establish a consumer environment rollout.
 
 ## 2026-09-06: P1 and dependency maintenance
 
@@ -14,7 +14,7 @@ not establish a management-cloud rollout.
 | [#236: pinned Actions updates](https://github.com/alpininsight/capi-provider-ssh/pull/236) | `1ed6339063f3154e7acc4b55fdaf562033a12139` | [PR lifecycle and quality passed](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34048242999), [container/version checks passed](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34048242944); follow [develop CI](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34048741800) and [publication](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34048741774). No runtime dependency change in this PR |
 | [#232: Kopf and Kubernetes-client updates](https://github.com/alpininsight/capi-provider-ssh/pull/232) | `60a9d13527bba12b984c2df0b3e21e1f2b2a937c` | [Updated PR lifecycle passed](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34048385973), [develop CI passed](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34049035814) and [publication passed](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34049035785). Python 3.14 is checked in the combined follow-up #230 |
 | [#231: hooks and changelog normalization](https://github.com/alpininsight/capi-provider-ssh/pull/231) | `25cec5e2c6d09ede8fe92d19cf625d29e15d6cf4` | [All PR checks passed](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34048895074), including the new full hook job. Merged through the existing authenticated GitHub browser because the CLI OAuth token lacked workflow scope; no permission expansion or rule bypass |
-| [#239: API and peering readiness](https://github.com/alpininsight/capi-provider-ssh/pull/239) | `3e3cbcc1b91998e2230a16f1b973be2c9506848c` | PR checks and image publication passed. The develop run was cancelled by #240; its replacement exposed the probe memory issue below. The image has not been promoted to management-cloud |
+| [#239: API and peering readiness](https://github.com/alpininsight/capi-provider-ssh/pull/239) | `3e3cbcc1b91998e2230a16f1b973be2c9506848c` | PR checks and image publication passed. The develop run was cancelled by #240; its replacement exposed the probe memory issue below. The image has not been promoted to consumer environment |
 | [#240: generated changelog](https://github.com/alpininsight/capi-provider-ssh/pull/240) | `119b9540a81367b00234dcc5f758951b76b97410` | User merged after all PR checks passed; runtime inputs were unchanged. [Replacement CI](https://github.com/alpininsight/capi-provider-ssh/actions/runs/34062084208) caught an exec probe exiting 137 despite printing ready; publication alone was not accepted as rollout evidence |
 | [#241: readiness memory budget](https://github.com/alpininsight/capi-provider-ssh/pull/241) | See merged PR | Current checks passed; post-merge review records the lightweight probe and concurrent memory tests. Deployment acceptance remains separate |
 | [#242: generated changelog](https://github.com/alpininsight/capi-provider-ssh/pull/242) | See merged PR | Final checks passed, but bot merging preceded their completion and cancelled earlier develop runs; require completed current checks before bot merging |
@@ -100,7 +100,7 @@ The subsequent audit identified inherited gaps despite these green checks:
 | Cleanup could leave an old Ready condition; pause reporting and transition times were not fully exercised | Merge conditions by type, preserve unrelated/history conditions, report pause/Unknown and observed generations; assert API persistence before reset and actual schema admission | Provider/CI: lifecycle and real API tests in the priority-fix PR |
 | The old release retry test mocked a successful no-op release; an actual release/connection error could erase cleanup success | Inject release failure, connection teardown failure and loss of the API response after a committed success; retain the receipt and retry without reset | Provider/CI: stateful negative regressions; extend any future remote operation with post-side-effect failure coverage |
 | Container imports passed while Python distribution metadata stayed at 0.1.0 and license files were absent | Feed the release calculation into both container builds; inspect wheel/sdist license and version, rebuild outside Git/build environment and compare installed runtime identity | Release/CI: required version/artifact and container validation jobs |
-| A CODEOWNERS comment was mistaken for enforceable review, and the named SRE team was invalid | Enable private intake, validate owner access and distinguish the standard review policy from explicitly authorized temporary operation; check actual reviewer availability before enabling a mandatory second-person gate | Repository administrator: valid owner is Peter Rosemann (`@dkdndes`); the 2026-09-08 temporary single-maintainer exception and its restoration trigger are recorded in the maintenance policy |
+| A CODEOWNERS comment was mistaken for enforceable review, and the named SRE team was invalid | Enable private intake, validate owner access and distinguish the standard review policy from explicitly authorized temporary operation; check actual reviewer availability before enabling a mandatory second-person gate | Repository administrator; verify current CODEOWNERS and the temporary review exception in the maintenance policy |
 | Automation treated all merge blocking as a CI wait | Distinguish required review from unfinished checks; queue normal auto-merge after checks and report review-pending, with no automated approval or bypass | CI maintainer: review-state, changed-head and command-guard regressions |
 
 Code and documentation improvements above describe the current priority-fix
@@ -110,7 +110,7 @@ reuse this changelog-only CI result as validation of new provider behavior.
 The priority-fix PR initially required a second person's approval although only
 one eligible maintainer existed. Successful CI could not resolve that governance
 deadlock. The owner authorized a temporary exception on 2026-09-08, with mandatory
-review restored when a second eligible maintainer joins, not in September 2026.
+review restored when a second eligible maintainer joins.
 Keep active and standard review profiles versioned, test both automation paths
 and revisit the exception at onboarding and release acceptance. The eight
 technical checks and resolved review threads remain mandatory throughout.
@@ -285,3 +285,13 @@ This entry records findings and prevention identified after the release. It does
 not assert that the corrective PR has merged, a new stable image has been
 published, or a consumer has deployed it. Record those results in the corrective
 PR follow-up after each stage completes.
+
+## 2026-11-26: documentation audience boundaries
+
+| Recurring gap | Prevention | Owner / acceptance |
+|---|---|---|
+| Public technical docs mixed product explanations with a particular operator's deployment and service process | Keep the role explanation and reproducible product procedures public; keep inventories, service procedures and dated deployment records with the operator | Documentation owner; review the documentation checklist and public link/audience guard |
+| A reference table linked to technical detail before explaining the task | Explain roles and the two-to-three-worker example before API fields; link the next procedure from each explanation | Documentation reviewer; README and getting-started walkthrough |
+
+The change prepares documentation separation. Its final merge, check results and
+any follow-up findings belong in the PR record; it changes no runtime behavior.

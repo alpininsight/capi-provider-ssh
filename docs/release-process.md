@@ -147,43 +147,32 @@ separate consumer evidence below.
 
 ## Preparing a release and a consumer rollout
 
-Prepare a release PR from `develop` to `main` after its dependent fixes and
-documentation PRs are accepted. Keep its reviewable description grouped by
-behavior, dependencies/security, documentation and license changes. Record the
-candidate source and checks, but calculate the final stable version with the
-release workflow instead of inferring it from a development image tag.
+Prepare a release PR from `develop` to `main` after dependent fixes and
+documentation changes are accepted. Group its description by behavior,
+dependencies/security, documentation and license changes. The release workflow
+calculates the final stable version; a development image tag is not that version.
 
-A draft consumer PR can prepare the rollout procedure and verification gates
-before that release exists. It must state the currently deployed image and leave
-the deployable pin unchanged until the stable image and its provenance can be
-verified. An unresolved placeholder or a development image presented as stable
-must not enter an active manifest. Merge the release and accept publication
-before filling the consumer's exact stable digest, source revision and VERSION
-record. Changes to deployment probes, RBAC or CRDs need their own reviewed diff.
+A consumer may prepare its own GitOps PR before publication. Keep the deployable
+pin unchanged until the stable image and provenance can be verified. Do not put
+an unresolved placeholder or a development image presented as stable into an
+active deployment. Changes to probes, RBAC or CRDs require their own review.
 
-If ArgoCD tracks the consumer's `develop` branch, merging the consumer PR can
-start reconciliation immediately. Preparation is not rollout authorization;
-retain the platform's separate release/maintenance decision and live acceptance.
-An empty CAPI inventory changes the lifecycle risk assessment, but does not
-remove controller, registry, API or shared-platform acceptance gates.
+Consumer acceptance has its own gates:
 
-For a mirror/relay, test the actual consumer identity and exact image pull path;
-an existing local image cache does not prove registry authorization. Include a
-negative identity check when changing admission. Preserve maintenance cordons and
-other operators' work. A namespace-audit Job has different permissions from the
-controller and must use its own operation contract.
+1. Verify the stable release, source revision, image identity, scan and provenance.
+2. Review the deployment's registry access, immutable pin, CRDs, RBAC and placement.
+3. Obtain the platform owner's rollout decision. An automatic GitOps sync may
+   begin reconciliation as soon as a consumer PR merges.
+4. Verify actual reconciliation and controller runtime; use a disposable workload
+   canary before claiming workload lifecycle acceptance.
 
-Security remediation and delivery-gate integration may proceed in parallel, but
-neither acceptance substitutes for the other. Keep the consumer PR in Draft with
-auto-merge disabled until both receipts identify the intended source and immutable
-image. The gate must block the actual promotion path, including applicable
-digest-pin shortcuts. Inventory both repository rulesets and classic branch
-protection; their required checks are cumulative. A local helper test or an
-optional successful CI job does not prove that the caller enforces the gate.
-Missing approved reader custody or access to the normal mirror path remains a
-blocker; do not mint credentials or bypass the mirror to manufacture acceptance.
-An audit using `imagePullPolicy: Always` can reuse local image layers. Record a
-separately scoped cold-node audit when claiming acceptance without cached layers.
+Where a platform uses a mirror, test the normal authenticated pull path with
+its actual consumer identity. A cached image or a locally tested helper does not
+prove that a deployment gate is enforced. Keep detailed credentials, identity
+custody, change windows and deployment receipts in the operator's private record.
+Use [rollout validation](live-rollout-validation.md) for the product acceptance
+checklist. A read-only audit, a live controller and an accepted workload lifecycle
+remain distinct results.
 
 ## Upgrade and recovery
 

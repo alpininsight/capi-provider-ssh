@@ -131,12 +131,10 @@ pytest-cov 7 does not automatically instrument subprocesses. Do not interpret
 uncovered remote-runtime code as proof that the separate Kind lane never tested it.
 Do not commit `.coverage`, JSON/XML/HTML reports or a dry-run configuration.
 
-The private organization `reusable-ci.yml` exposes `coverage-package` and uses
-self-hosted runners, but assumes a root project with a `dev` extra and `src/`.
-This repository instead uses `python/` and a `dev` dependency group. Its public
-CI aligns with the configurable Python quality workflow and cannot directly
-call a private reusable workflow. A local adapted pytest command is sufficient
-for a dry run; no runner restart or new workflow integration is needed.
+This repository uses a `python/` project with a `dev` dependency group. Its
+checked-in public workflows define the CI commands; the provider does not depend
+on access to a private workflow catalog. Use the command above for a temporary
+coverage measurement rather than committing generated reports or configuration.
 
 References: [pytest-cov reporting](https://pytest-cov.readthedocs.io/en/latest/reporting.html),
 [subprocess coverage](https://pytest-cov.readthedocs.io/en/latest/subprocess-support.html),

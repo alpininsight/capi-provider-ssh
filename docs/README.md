@@ -1,56 +1,45 @@
 # Documentation
 
-This documentation describes the Python provider in the checked-out revision.
-Use the [support matrix](support-matrix.md) for tested versions and known limits;
-use immutable release/source references when reviewing an older deployment.
+Start with [what the provider does and how to use it](getting-started.md).
+This documentation describes the open source provider in the checked-out
+revision. Select tested versions from the [support matrix](support-matrix.md)
+and use the documentation at your release tag when inspecting an older artifact.
 
-## Evaluation and reference
+## Understand and evaluate
 
-| Document | Decision it supports |
+| Your question | Read next |
 |---|---|
-| [Architecture](architecture.md) | Ownership, CAPI boundaries and safety model |
-| [Support matrix](support-matrix.md) | Tested combinations, contract level and evidence gaps |
-| [CAPI contract migration](capi-contract-migration.md) | v1beta1/v1beta2 differences, current implementation and ordered acceptance steps |
-| [clusterctl integration plan](clusterctl-integration.md) | Separate directory, installation/release, upgrade and move/pivot packages and acceptance gates |
-| [API and configuration](api-reference.md) | Resource fields, defaults and controller settings |
-| [RBAC](rbac-requirements.md) | Actual permissions and trust scope |
-| [External etcd](external-etcd.md) | Certificate and kubeadm configuration contract |
-| [Plugin design](plugin-contract.md) | Required extension boundaries; no implemented plugin API |
+| Who uses it, where does it run, and what happens when I add a worker? | [Getting started](getting-started.md) |
+| Who owns host preparation, bootstrap and cleanup? | [Architecture and safety](architecture.md) |
+| Which versions and features have evidence? | [Support matrix](support-matrix.md) |
+| Why is the current CAPI contract v1beta1? | [Contract comparison and migration](capi-contract-migration.md) |
+| Is clusterctl installation available? | [Integration status and plan](clusterctl-integration.md) |
+| Are hardware plugins shipped? | [Plugin design boundary](plugin-contract.md) and [roadmap](roadmap.md) |
 
-## Operator procedures
+## Install, configure and operate
 
-| Document | Outcome |
+| Task | Guide |
 |---|---|
-| [Installation](installation.md) | Reviewed manifests, credentials, placement and acceptance |
-| [Operations](operations.md) | HA, pause, cleanup, reboot and recovery decisions |
-| [SSH key lifecycle](ssh-key-lifecycle.md) | Independently verified trust and credential rotation |
-| [Troubleshooting](faq.md) | Symptom, diagnostic evidence and next safe action |
-| [Release process](release-process.md) | Source-to-image-to-GitOps acceptance |
-| [Rollout validation](live-rollout-validation.md) | Canary lifecycle and teardown evidence |
-| [Maintenance and backports](maintenance-policy.md) | Supported release lines, fix selection and independent review |
-| [Security policy](../SECURITY.md) | Reporting channel, privilege boundary and evidence handling |
+| Find and pin a released image | [Container delivery](../CONTAINER_IMAGES.md) |
+| Install controllers and accept a first workload | [Installation](installation.md), [rollout validation](live-rollout-validation.md) |
+| Configure hosts and Machines | [API reference](api-reference.md), [external etcd](external-etcd.md) |
+| Review privilege and trust | [Security policy](../SECURITY.md), [RBAC](rbac-requirements.md), [SSH key lifecycle](ssh-key-lifecycle.md) |
+| Operate HA, pause, reboot, cleanup and recovery | [Operations](operations.md) |
+| Diagnose failures or an empty fleet | [Troubleshooting and FAQ](faq.md) |
 
-## Contributor material and historical records
+## Contribute and maintain
 
-- [Development](../DEVELOPMENT.md), [test portfolio](testing.md) and [contribution guide](../CONTRIBUTING.md).
-- [CI routing and merge acceptance](ci-governance.md) defines required checks, changelog automation and external SSH configuration.
-- [P1 validation record](p1-validation.md) and [post-merge lessons](merge-reviews.md) are dated historical evidence, not live status dashboards.
-- [Roadmap](roadmap.md) and its research notes describe proposals, not supported features or release commitments.
-- [Documentation and OSS readiness](documentation-readiness.md) records the reviewed coverage, remaining product work and documentation priorities.
-- [Governance records and templates](../.github/docs/README.md) cover change records and consumer continuity planning; templates are not evidence of a certified service.
-- [DNS cutover](dns-cutover.md) is an environment-level procedure outside the provider API.
-- [Former Flux guide](flux-rollout.md) redirects to the current rollout documentation.
+- [Development](../DEVELOPMENT.md), [test portfolio](testing.md), [contributing](../CONTRIBUTING.md).
+- [CI and merge acceptance](ci-governance.md), [release process](release-process.md), [maintenance and backports](maintenance-policy.md).
+- [P1 validation](p1-validation.md) and [post-merge lessons](merge-reviews.md) are historical product evidence, not live status dashboards.
+- [Documentation boundaries and review checklist](documentation-readiness.md).
 
-## Documentation maintenance
+Operator inventories, actual deployment records, internal governance templates,
+service contracts and customer-specific instructions are maintained by the
+operator outside this public repository. Open source users do not need access
+to a private company repository to understand or install the provider.
 
-The contributor changing behavior owns the corresponding documentation update;
-the PR reviewer checks commands, examples, failure/recovery semantics and support
-claims against code, CRDs and actual test evidence. Platform maintainers own
-private deployment records. Date any deployment observation and retain detailed
-host/account evidence in the access-controlled environment repository.
-
-Keep explanations, reference, procedures and evidence distinguishable, following
-the [Diátaxis documentation model](https://diataxis.fr/). Each procedure must state
-its prerequisites, intended outcome, acceptance check and recovery boundary.
-No document may imply certification, an SLA or plugin support without an
-explicit supporting contract and validation record.
+Explanations, procedures, reference and historical evidence have different
+purposes, following [Diátaxis](https://diataxis.fr/). A procedure states its
+prerequisites, expected result, acceptance check and recovery boundary. Claims
+about certification, SLAs or optional features require their own evidence.

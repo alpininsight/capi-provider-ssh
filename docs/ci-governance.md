@@ -1,8 +1,7 @@
 # CI routing and merge acceptance
 
-The public provider uses GitHub-hosted runners. The organization notebook pool
-is restricted to private repositories and is not an execution target for this
-repository. External SSH E2E and the nested Kind/kubeadm lifecycle use
+The public provider uses the GitHub-hosted runners declared in its workflows.
+External SSH E2E and the nested Kind/kubeadm lifecycle use
 `ubuntu-24.04`; standard quality and build lanes keep their existing GitHub-hosted
 runners. Qualify a new lifecycle host OS in a separate change before moving this
 pin. The October release preflight found Ubuntu 26.04 bootstrap failures behind
@@ -23,8 +22,7 @@ approvals, optional CODEOWNER review and no separate last-push approval. Stale
 approvals are dismissed and review threads must be resolved. The eight strict
 checks and PR requirement remain active, with no repository bypass actors. Main
 still accepts merge commits only. Restore the [standard review profile](../.github/required-reviews-standard.json)
-when a second eligible maintainer is onboarded; no September 2026 availability
-or automatic calendar-based restoration is assumed. See
+when a second eligible maintainer is onboarded; restoration is event-based. See
 [maintenance and reviewer continuity](maintenance-policy.md#independent-review-and-continuity).
 
 Before release or after changing owners/rules, verify the actual GitHub state:
@@ -83,11 +81,6 @@ snapshot, the helper waits at most five seconds and re-reads once before reporti
 failure. The expected head and repository/branch identity are validated again;
 a still-blocked PR fails. This retries only observation, never the merge request.
 
-The central private changelog workflow was compared during this correction. This
-public implementation additionally enforces the completed-check wait above;
-the central workflow's auto-merge/direct-merge behavior is not sufficient by
-itself when required repository checks are missing.
-
 Final develop CI and publication still require verification after a merge. If
 concurrency replaces an earlier run, inspect the accepted replacement and its
 source changes as described in [release delivery](release-process.md).
@@ -115,8 +108,8 @@ removes those files. Manual dispatch always requests the test, irrespective of
 `E2E_SSH_ENABLED`; enabled schedules and manual runs fail explicitly on missing
 configuration. A disabled schedule records **not run** in its configuration job
 summary and skips the external test job. That result is not SSH coverage or
-rollout acceptance. It does not enable
-public access to the shared notebook runner group or bypass SSH host trust.
+rollout acceptance. An enabled schedule does not bypass SSH host trust or
+authorize a target outside the explicitly configured test scope.
 
 For verification, dispatch **E2E SSH Tests** on the reviewed branch and inspect
 the actual runner, preflight and test result. A runner starting the job proves

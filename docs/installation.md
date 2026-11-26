@@ -1,5 +1,6 @@
 # Installation and first acceptance
 
+Read [getting started](getting-started.md) for the roles and resource flow.
 This procedure prepares a reviewed provider installation in a management cluster.
 It does not adopt existing VMs or create a workload cluster automatically. For an
 isolated evaluation, use the disposable [Kind lifecycle procedure](testing.md)
@@ -63,10 +64,11 @@ Deliver in this order through the environment's existing manifest owner:
 3. Deployment and PDB, preserving projected credentials and security settings.
 4. Intended host inventory and CAPI workload resources only after controller acceptance.
 
-management-cloud uses ArgoCD and its existing GitOps overlays. The peering CRD
-and object contain sync-wave hints. A plain `kubectl apply` does not implement
-Argo ordering; a manually managed evaluation must split these stages and wait
-explicitly. Do not run a second deployment manager against GitOps-owned objects.
+Choose one manifest owner for the installation. The peering CRD and object
+contain ArgoCD sync-wave hints for users of that tool. A plain `kubectl apply`
+does not implement those waves; a manually managed evaluation must split the
+stages and wait explicitly. Other GitOps tools need their own dependency/wait
+configuration. Do not run a second manager against GitOps-owned objects.
 
 ## Acceptance
 

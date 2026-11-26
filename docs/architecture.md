@@ -1,5 +1,9 @@
 # Architecture and safety boundaries
 
+For roles, the management/workload distinction and a worker-scaling example,
+start with [what the provider does and how to use it](getting-started.md). This
+page explains the implementation and safety boundaries behind that workflow.
+
 The provider manages Kubernetes lifecycle on existing SSH-reachable Linux hosts.
 It does not allocate cloud VMs, install an OS, manage hardware power or adopt
 an existing cluster automatically. See [support](support-matrix.md) for the tested

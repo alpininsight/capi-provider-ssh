@@ -8,8 +8,8 @@ workload control-plane HA are independent requirements.
 ## Controller HA
 
 The deployment has two replicas, a PodDisruptionBudget with `minAvailable: 1`,
-and required anti-affinity by hostname. The management-cloud overlay additionally
-requires the control-plane role and spreads pods across `ais/proxmox-host`.
+and required anti-affinity by hostname. Operators may add placement constraints
+and physical failure-domain spread in their own deployment overlays.
 Two eligible nodes are required. Rolling updates use `maxUnavailable: 1` and
 `maxSurge: 0`, so two eligible nodes suffice for upgrades as well as steady state.
 
@@ -115,7 +115,7 @@ kubectl --kubeconfig "$MANAGEMENT_KUBECONFIG" get clusterkopfpeerings.kopf.dev c
 
 The probe command requires an image containing this module and a matching
 Deployment update. Updating an image tag or this repository alone does not update
-the management-cloud GitOps pin. For older images, inspect API reachability and
+an operator-specific deployment pin. For older images, inspect API reachability and
 peering directly; their `/healthz` endpoint does not establish readiness.
 
 If only one replica can reach the API, inspect that node's Cilium agent API
@@ -167,7 +167,8 @@ kubectl --kubeconfig "$MANAGEMENT_KUBECONFIG" -n "$NAMESPACE" patch cluster "$CL
 
 Record the pause in GitOps desired state as well so a subsequent Argo sync does
 not remove it. Pausing Argo synchronization only stops manifest delivery; it
-does not pause already installed CAPI controllers. Flux is retired in management-cloud.
+does not pause already installed CAPI controllers. The same distinction applies
+to other GitOps reconcilers.
 
 Pause prevents the next remote operation. It cannot retract a command which the
 host has already accepted. Inspect ownership, operation status and the remote

@@ -3,7 +3,7 @@
 Baseline: 2026-09-06. This is historical implementation evidence; counts and
 observed timings below belong to those runs. Use the [test portfolio](testing.md)
 for current lanes and the [support matrix](support-matrix.md) for support limits.
-The record does not establish a current management-cloud image or CAPI upgrade.
+The record does not establish any current consumer deployment or CAPI upgrade.
 
 | Finding | Change | Regression evidence |
 |---|---|---|
@@ -45,9 +45,7 @@ lifecycle in 522.73 s. It covered init, two control-plane joins, a worker join,
 worker deletion/reuse and an abrupt provider crash. One remote bootstrap attempt
 completed and reconciliation recovered in 121.1 s (earlier independent trial:
 122.7 s). These observations are not a recovery-time SLO. Whole-cluster cleanup
-then completed through CAPI without removing finalizers manually. The k8s repository's
-full suite passed 348 suites after rebasing the integration change, with seven
-explicitly skipped environment lanes.
+then completed through CAPI without removing finalizers manually.
 The final candidate's CI artifacts remain the authoritative commit-specific record.
 
 ## Lessons to carry into subsequent reviews

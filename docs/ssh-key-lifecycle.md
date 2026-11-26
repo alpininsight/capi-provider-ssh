@@ -16,8 +16,8 @@ This runbook defines a GitOps-safe lifecycle for SSH keys used by
 ## GitOps Pattern A: SOPS
 
 Use an encrypted Secret manifest with the environment's reviewed decryption integration.
-management-cloud uses ArgoCD; SOPS decryption requires an explicitly configured
-integration and is not a built-in capability of this provider. The checked-in
+For ArgoCD, SOPS decryption requires an explicitly configured integration;
+credential decryption is not a built-in capability of this provider. The checked-in
 SOPS example is a template, not deployable encrypted credential material.
 
 - Example: `python/deploy/examples/ssh-key-lifecycle/sops/secret.sops.yaml`

@@ -1,8 +1,9 @@
 # Rollout validation and teardown
 
 Use the [support matrix](support-matrix.md) and [lifecycle/HA runbook](operations.md)
-as the acceptance contract. management-cloud uses **ArgoCD**. Inventory is
-environment-specific; installing controllers does not adopt existing nodes.
+as the acceptance contract. Choose one manifest owner and explicitly select
+the management cluster. Inventory is environment-specific; installing
+controllers does not adopt existing nodes.
 
 ## Delivery order
 
@@ -20,7 +21,7 @@ environment-specific; installing controllers does not adopt existing nodes.
    vendored Kubernetes manifests record upstream asset hashes and preserve their
    existing HA/security overlays. Aggregated RBAC rules stay controller-owned.
 5. Deliver provider CRDs, RBAC, peering CRD/instance, PDB and matching image through
-   the Argo application. Wait for CRDs and both replicas. Check peering heartbeat
+   the installation's manifest owner. Wait for CRDs and both replicas. Check peering heartbeat
    progress and run an authenticated API operation; `/healthz` alone is insufficient.
 6. Create or resume only the intended canary lifecycle objects. Verify Machine
    bootstrap data, allocation UID/port, remote trust, providerID-to-Node association,
@@ -29,8 +30,8 @@ environment-specific; installing controllers does not adopt existing nodes.
    finalizer removal, absence of stale remote ownership/bootstrap files, release
    of the original host claim and reuse by a different Machine UID.
 
-The next CAPI upgrade to 1.14 is a separate stage after the bridge has passed.
-Do not combine it into an unsupported 1.9 → 1.14 jump.
+Choose later upgrades from the current upstream compatibility policy and test
+them separately. Do not infer support for a version jump from the bridge test.
 
 ## Stop and recovery
 
@@ -42,7 +43,7 @@ contract or downgrading CAPI is not an automatic rollback procedure.
 
 For an empty, controller-only management installation, rollback/forward recovery
 has a different scope from an active CAPI workload. Repeat the inventory check
-immediately before delivery; do not rely on the dated empty baseline.
+immediately before delivery; do not infer it from a previous observation.
 
 ## Evidence to attach to the change
 
@@ -50,7 +51,7 @@ immediately before delivery; do not rely on the dated empty baseline.
 |---|---|
 | Source / CI | Provider and GitOps commit IDs; required checks and actual executed test lanes |
 | Image | Multi-architecture immutable digest and source revision |
-| GitOps | Argo target revision, synced image pin, CRD/peering ordering |
+| GitOps | Observed GitOps/source revision, delivered image pin and CRD/peering ordering |
 | Runtime | Two Ready pods on distinct eligible nodes, fresh peer heartbeats and authenticated CRD API reads; API writes are verified by the separate lifecycle lane |
 | Lifecycle | Init, control-plane join, worker join, UID/providerID association, cleanup and host reuse |
 | HA | Active-pod failure during bootstrap, surviving remote guard, successful takeover without replay |
