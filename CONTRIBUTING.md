@@ -30,12 +30,13 @@ an auto-merge setting by itself is not a quality gate.
 
 For documentation, cross-check cleanup ordering, persisted field names, RBAC
 verbs and defaults against source. Mark proposals and historical evidence
-explicitly. Keep operational credentials, private inventories, generated reports,
+explicitly. Follow the [documentation boundary checklist](docs/documentation-readiness.md).
+Keep operational credentials, private inventories, generated reports,
 local approval files and machine-specific runtime state out of the repository.
 
 All required checks and resolved review threads remain mandatory. During the
-temporary single-maintainer exception, Peter Rosemann (`@dkdndes`), Alpin Insight
-Solutions, records owner acceptance; independent approval becomes mandatory again
+temporary single-maintainer exception, the maintainer records owner acceptance;
+independent approval becomes mandatory again
 when a second eligible maintainer is onboarded. Bot-generated PRs follow the same
 active policy. See [CI governance](docs/ci-governance.md) and
 [maintenance/backports](docs/maintenance-policy.md).

@@ -35,7 +35,7 @@ external adoption, the current source completes lifecycle condition reporting,
 release-derived package/license metadata and the maintenance policy. Private
 reporting is enabled. A temporary single-maintainer review exception applies;
 restore independent approval when a second eligible maintainer is onboarded,
-with no September 2026 availability assumed. Approved external SSH evidence
+as an event-based transition. Approved external SSH evidence
 remains necessary. Published and deployed versions
 still need their own release/rollout acceptance.
 
@@ -57,8 +57,8 @@ move support or built-in registration during the quarter.
 
 Directory listing, install/upgrade support and move/pivot support are separate
 outcomes. The proposed registered name is `alpininsight-ssh`; neither a new
-provider API group nor a Python SDK is required. Keep the existing ArgoCD owner
-and active consumer identity intact until an explicit migration is reviewed.
+provider API group nor a Python SDK is required. Preserve each installation's
+existing manifest owner and identity until an explicit migration is reviewed.
 
 | Area | Work before claiming support | Acceptance owner |
 |---|---|---|
@@ -68,7 +68,7 @@ and active consumer identity intact until an explicit migration is reviewed.
 | First OOB driver | Protocol emulator tests, lost-response/crash tests and an explicitly selected physical canary | Driver maintainer |
 | Production operating envelope | Fleet-scale/soak measurements, resource sizing, recovery objectives and supported OS baselines | Platform owner |
 | Security operations | Intake enabled and [maintenance/backport policy](maintenance-policy.md) implemented; exercise triage | Repository maintainers |
-| Review continuity | [#261](https://github.com/alpininsight/capi-provider-ssh/issues/261): end the temporary single-maintainer exception and restore the standard review profile when a second eligible maintainer is onboarded; no September 2026 or fixed Q4 delivery commitment | Repository owner |
+| Review continuity | [#261](https://github.com/alpininsight/capi-provider-ssh/issues/261): end the temporary single-maintainer exception and restore the standard review profile when a second eligible maintainer is onboarded; no staffing or fixed Q4 delivery commitment | Repository owner |
 | Distribution metadata | Implemented in source: release-derived version, license/project metadata and isolated rebuild checks; verify publication of each accepted version | Release maintainer |
 
 ## Research inputs

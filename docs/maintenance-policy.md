@@ -70,8 +70,8 @@ review bypasses or removal of lifecycle finalizers.
 
 The standard policy requires independent approval. On **2026-09-08**, the repository
 owner authorized a **temporary single-maintainer exception** for `main` and
-`develop`. Peter Rosemann (`@dkdndes`), Alpin Insight Solutions, remains the
-administrator and [CODEOWNER](../.github/CODEOWNERS). Ownership and review routing
+`develop`. The current maintainers are listed in
+[CODEOWNERS](../.github/CODEOWNERS). Ownership and review routing
 remain active; a second person's approval is temporarily optional. This applies
 equally to provider, dependency, documentation, bot and release PRs.
 
@@ -93,8 +93,7 @@ must be addressed. Automation cannot supply a human approval.
 
 Restore the standard policy **when a second eligible maintainer is onboarded**,
 tracked in [issue #261](https://github.com/alpininsight/capi-provider-ssh/issues/261).
-That availability is not planned for September 2026. This is an event-based
-transition, with no automatic October 1 switch and no promised hiring date:
+This is an event-based transition, with no calendar deadline or staffing promise:
 
 1. The repository owner authorizes the second maintainer's write access and adds
    a valid owner entry through a PR. Verify GitHub CODEOWNERS validation on the

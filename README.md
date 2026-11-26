@@ -4,161 +4,117 @@
 [![Container](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/container-build-python.yml/badge.svg)](https://github.com/alpininsight/capi-provider-ssh/actions/workflows/container-build-python.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-brightgreen.svg)](LICENSE)
 
-**Cluster API for the servers you already have.**
+**Use the Linux servers you already have to build Kubernetes clusters with Cluster API.**
 
-This provider allocates pre-provisioned Linux hosts to Cluster API Machines and
-executes their lifecycle operations over verified SSH. OS installation, network
-preparation and creation of a VM remain with the platform that supplies the host.
-Creating the CAPI resource chain explicitly authorizes the intended lifecycle;
-installing the controller does not adopt existing Kubernetes nodes or clusters.
+CAPI Provider SSH is an open source infrastructure controller for
+[Cluster API (CAPI)](https://cluster-api.sigs.k8s.io/). It connects CAPI's desired
+cluster state to existing Linux servers or VMs using verified SSH. Your
+infrastructure team prepares the hosts; your platform team defines the cluster;
+the controller assigns hosts and executes the supplied bootstrap and cleanup work.
 
-A Python infrastructure provider for [Cluster API](https://cluster-api.sigs.k8s.io/)
-that bootstraps and cleans up pre-provisioned Linux hosts over authenticated SSH.
-It coordinates host allocation, bootstrap execution, in-band reboot and deletion
-with persistent ownership checks across controller restarts.
+The provider runs in a **management cluster**. Applications run in the
+**workload clusters** managed from there. Installing the controller does not
+create a workload cluster or take ownership of existing Kubernetes nodes.
 
-- **Persistent ownership across restarts.** UID-bound host claims and durable
-  receipts allow reconciliation to resume; ambiguous ownership blocks new work.
-- **Two coordinated controller replicas.** Peering, host Leases and API-aware
-  readiness protect lifecycle work. Management API and workload availability
-  have their own HA requirements.
-- **Guarded cleanup.** Failed cleanup quarantines the host and
-  keeps the finalizer instead of reporting a deletion that did not happen.
-- **GitOps delivery.** Alpin Insight deploys the controller in its management
-  cluster with an immutable image pin. Controller installation and acceptance
-  of a CAPI-managed workload cluster are separate results.
+## Who uses it, and for what?
 
-Existing-host and SSH approaches are also available in
-[Bring Your Own Host](https://github.com/vmware-tanzu/cluster-api-provider-bringyourownhost)
-and [k0smotron RemoteMachine](https://github.com/k0sproject/k0smotron).
-Evaluate the documented bootstrap, ownership, cleanup and SSH-trust models for
-your environment; this provider does not claim to be the first or only such option.
+| Who or component | Responsibility | Result |
+|---|---|---|
+| Infrastructure team or host preparation pipeline | Supply Linux hosts, OS, network, verified SSH identity and runtime/package prerequisites | Hosts ready to be assigned to Kubernetes Machines |
+| Platform team / DevOps | Define the cluster, host inventory, control-plane and worker counts, credentials and trust | Reviewed desired state in Kubernetes manifests |
+| GitOps controller, if used | Deliver the reviewed manifests and immutable image pin | Reproducible manifest delivery; separate from lifecycle reconciliation |
+| CAPI core, kubeadm bootstrap and control-plane controllers | Orchestrate Machines, generate bootstrap data and manage control-plane lifecycle | The Kubernetes cluster lifecycle and bootstrap instructions |
+| **SSH provider** | Assign prepared hosts, verify SSH trust, execute bootstrap, observe operations and perform owned cleanup | The infrastructure part of each Machine's lifecycle |
+| Application teams | Deploy applications and jobs to the resulting Kubernetes cluster | Consume Kubernetes without operating the SSH provider directly |
 
-## The same provider from a laptop VM to a datacenter
+For example, to grow a workload cluster **from two to three workers**, DevOps
+increases the worker `MachineDeployment` replica count. CAPI creates another
+Machine. The SSH provider claims a matching prepared host, executes the supplied
+bootstrap instructions and reports infrastructure state. The host joins the
+workload cluster. **The extra host must already exist**; this provider does not
+create a VM or install its operating system.
 
-The requirement list is deliberately short.
+The [getting-started explanation](docs/getting-started.md) walks through the
+roles, objects and lifecycle. Use [installation](docs/installation.md) for the
+actual prerequisites and delivery procedure.
 
-| Required on the host | Not required anywhere |
+## What it provides
+
+- **Persistent host ownership.** UID-bound claims and durable operation receipts
+  preserve identity across controller restarts. Ambiguous ownership blocks work.
+- **Coordinated controller HA.** Two replicas use peering, host Leases and remote
+  fencing. Management-cluster and workload control-plane HA are separate concerns.
+- **Guarded cleanup.** Failed cleanup quarantines the host and retains its claim
+  and finalizer. Delete Machines through CAPI; do not force finalizers away.
+- **Verified SSH trust.** Host keys or CA trust must be verified independently
+  before privileged lifecycle commands are permitted.
+
+The same prepared-host model can be used with a Linux VM or a physical server.
+A cloud or hypervisor API, BMC and host agent are not required. Host preparation
+must supply Linux, reachable SSH, the required privileges, `flock` and the
+container-runtime/kubeadm baseline. See the [support matrix](docs/support-matrix.md)
+for tested combinations rather than assuming every platform is certified.
+
+## Scope and delivery
+
+| Question | Answer and next document |
 |---|---|
-| Linux, reachable over SSH with verified trust | A hypervisor or cloud API |
-| Root-capable operations and `flock` | A BMC, Redfish or IPMI |
-| A prepared container runtime and kubeadm baseline | An agent installed on the host |
-| Nothing else | A cloud account, or any vendor at all |
+| Is it a Python client or a command-line tool? | It is a Python-based Kubernetes controller. The container is the normal deployment artifact; Python package code is for runtime and development. See [getting started](docs/getting-started.md). |
+| Where does it run? | In the management cluster, with two coordinated controller replicas. See [architecture](docs/architecture.md). |
+| How do I install it? | Review and deliver CRDs, RBAC, peering, Deployment and PDB. See [installation](docs/installation.md). |
+| How do I define hosts and Machines? | Use `SSHHost`, `SSHCluster`, `SSHMachine` and CAPI resources. See the [API reference](docs/api-reference.md). |
+| Why can the fleet be empty? | Controllers wait for explicitly created workload-cluster resources. See the [fleet FAQ](docs/faq.md#why-is-the-capi-fleet-empty-even-though-the-controller-is-healthy). |
+| Where is the released container? | GHCR, with release tags and immutable digests. See [container delivery](CONTAINER_IMAGES.md). |
+| What is outside its scope? | VM creation, OS installation, hardware power management, DNS/application traffic cutover and automatic adoption of existing clusters. See [architecture](docs/architecture.md). |
+| Are hardware plugins available? | No plugin runtime or out-of-band driver is shipped. See the [design boundary](docs/plugin-contract.md) and [roadmap](docs/roadmap.md). |
 
-Nothing in the left column is vendor-specific, so a Lima VM on a MacBook, a
-Proxmox guest in a homelab, a repurposed NUC and a hosted root server are the
-same prepared-host integration model. The disposable Kind lane validates the
-documented lifecycle baseline. A healthy controller installation on hosted
-servers does not establish certification for every host platform or a completed
-workload-cluster lifecycle in that environment.
+This repository contains the open source product and its contributor guidance.
+Operator-specific inventories, deployment records, service commitments and
+internal service procedures belong in the operator's access-controlled records.
+No commercial SLA or managed service is included by installing the controller.
 
-This is not a claim that Cluster API was previously unusable outside a
-datacenter. The upstream
-[Docker provider](https://github.com/kubernetes-sigs/cluster-api/tree/main/test/infrastructure/docker)
-covers local development, and providers exist for Proxmox, KubeVirt and vSphere.
-The integration prerequisites differ: bare-metal systems can involve hardware
-inventory, provisioning or network-boot services, while hypervisor providers use
-the selected platform's API. This provider starts with prepared Linux hosts and
-verified SSH access. Compare each provider's actual requirements before choosing
-an approach.
+## Compatibility
 
-### Where the hardware plugin fits
+The provider implements the **v1beta1 CAPI contract**. The validated baseline is
+CAPI core/CABPK/KCP **1.12.11** on management Kubernetes **1.34.11**, with a tested
+upgrade bridge from CAPI 1.9.2. Images are published for linux/amd64 and linux/arm64.
+Use the [latest release](https://github.com/alpininsight/capi-provider-ssh/releases/latest)
+and its immutable source/image evidence for the version you deploy.
 
-Out-of-band power management is **not shipped**. The
-[plugin design boundary](docs/plugin-contract.md) and the
-[protocol-based taxonomy research](docs/roadmap/protocol-based-hardware-taxonomy.md)
-plan it around protocols instead of vendor names: one `redfish` plugin covering
-HPE iLO, Dell iDRAC, Lenovo XCC and Supermicro alike, plus `ipmi` for older
-servers, `snmp` for smart PDUs and `gpio` for single-board computers such as
-Raspberry Pi and Jetson.
+CAPI v1beta2 migration is planned; it is not completed by the current CRD API
+name. Read the [contract comparison](docs/capi-contract-migration.md) and
+[support matrix](docs/support-matrix.md) before selecting versions or upgrading.
 
-That work exists for physical hardware which also needs remote power control. A
-notebook VM or a homelab hypervisor guest needs none of it: whatever created
-those hosts powers them on, and SSH is enough. Plugins are a separate capability
-decision in the [roadmap](docs/roadmap.md), not a prerequisite for the cases
-above.
-
-## Product scope
-
-The OS and network must already be provisioned. The host preparation pipeline or
-reviewed kubeadm bootstrap configuration supplies the container runtime and
-Kubernetes packages. CAPI core, the kubeadm bootstrap provider and the kubeadm
-control-plane provider retain their own lifecycle responsibilities.
-
-Hardware power management, OS installation and a plugin runtime are not shipped.
-Two controller replicas, API-aware readiness, host Leases and remote UID fencing
-provide lifecycle HA.
-
-### Versions and CAPI contract
-
-Validated against CAPI core, the kubeadm bootstrap provider and the kubeadm
-control-plane provider at **1.12.11**, with an upgrade bridge tested from 1.9.2,
-on management Kubernetes 1.34.11. Container images are published for linux/amd64
-and linux/arm64; see the
-[releases](https://github.com/alpininsight/capi-provider-ssh/releases) for the
-current version.
-
-The provider implements the **v1beta1 CAPI contract**. CAPI 1.11 introduced
-v1beta2, and our CRD contract labels, core API access and end-to-end tests still
-target the v1beta1 integration; the migration is the Q4 2026 roadmap item. The
-[contract comparison and migration plan](docs/capi-contract-migration.md) shows
-what is implemented, what differs and the remaining steps.
-
-Read the [support matrix](docs/support-matrix.md) before choosing versions or
-planning production use. Tested behavior is distinct from a support SLA, hardware
-certification or a completed workload rollout in a particular environment.
-
-## What this provider is and how to use it
-
-| Question | Documentation |
-|---|---|
-| What is the provider? | This [README](README.md): a Python-based CAPI infrastructure provider, not a VM or OS provisioner. |
-| Where does it run? | [Architecture](docs/architecture.md): two controller replicas in the management cluster. |
-| How is it installed? | [Installation](docs/installation.md): CRDs, RBAC, Deployment/PDB and GitOps delivery order. |
-| How is it used? | [API and configuration reference](docs/api-reference.md): `SSHHost`, `SSHCluster`, `SSHMachine` and the CAPI ownership chain. |
-| Why can the CAPI fleet be empty? | [Fleet and ownership FAQ](docs/faq.md#why-is-the-capi-fleet-empty-even-though-the-controller-is-healthy): controllers wait for explicitly created workload-cluster resources; existing Nodes are not automatically adopted. |
-| How is it delivered? | [Container delivery](CONTAINER_IMAGES.md): GHCR image, release tag and digest pinning. |
-| What is out of scope? | [Architecture](docs/architecture.md): OS installation, hardware power management, cloud VM creation and a plugin runtime. |
-
-## Start here
+## Find the right guide
 
 | Task | Guide |
 |---|---|
-| Evaluate the product and its boundaries | [Architecture](docs/architecture.md) |
-| Find, pull and pin a released container | [Container delivery](CONTAINER_IMAGES.md) |
-| Install a reviewed provider in a management cluster | [Installation](docs/installation.md) |
-| Configure inventory and Machines | [API and configuration reference](docs/api-reference.md) |
-| Operate HA, pause, reboot and cleanup | [Operations](docs/operations.md) |
+| Understand the product and a worker-scaling example | [Getting started](docs/getting-started.md) |
+| Evaluate ownership, safety and privileges | [Architecture](docs/architecture.md), [security](SECURITY.md), [RBAC](docs/rbac-requirements.md) |
+| Install the controller and accept a first workload | [Installation](docs/installation.md), [rollout validation](docs/live-rollout-validation.md) |
+| Operate pause, HA, reboot, cleanup and SSH trust | [Operations](docs/operations.md), [SSH key lifecycle](docs/ssh-key-lifecycle.md) |
 | Diagnose a failure | [Troubleshooting and FAQ](docs/faq.md) |
-| Validate a change or contribute | [Development](DEVELOPMENT.md), [testing](docs/testing.md), [contributing](CONTRIBUTING.md) |
-| Plan a release or GitOps rollout | [Release and delivery](docs/release-process.md) |
-| Review trust and report a vulnerability | [Security policy](SECURITY.md), [SSH key lifecycle](docs/ssh-key-lifecycle.md) |
-| Design an extension | [Plugin design boundary](docs/plugin-contract.md), [roadmap](docs/roadmap.md) |
+| Contribute or validate a change | [Development](DEVELOPMENT.md), [testing](docs/testing.md), [contributing](CONTRIBUTING.md) |
+| Prepare a release | [Release process](docs/release-process.md), [container delivery](CONTAINER_IMAGES.md) |
 
-The [documentation index](docs/README.md) identifies reference, procedures and
-historical evidence. Public product documentation excludes environment credentials,
-private host inventories and raw operational evidence bundles.
+The [documentation index](docs/README.md) lists the full reference and roadmap.
 
 ## Resources
 
-All provider objects use `infrastructure.alpininsight.ai/v1beta1` and are namespaced.
-The [structural CRDs](shared/crds/) are the authoritative field definitions.
+All provider resources are namespaced and use
+`infrastructure.alpininsight.ai/v1beta1`. This is a Kubernetes API group and schema
+version; it does not require a public DNS endpoint or CDN. The
+[structural CRDs](shared/crds/) define accepted fields.
 
 | Kind | Responsibility |
 |---|---|
-| `SSHHost` | Host inventory, SSH reachability and UID-bound claim/cleanup state |
-| `SSHCluster` | Infrastructure endpoint for the owning CAPI Cluster |
-| `SSHClusterTemplate` | Template for cluster infrastructure |
-| `SSHMachine` | Immutable allocation, bootstrap ownership, readiness and lifecycle |
-| `SSHMachineTemplate` | Infrastructure template for CAPI-managed Machines |
+| `SSHHost` | Prepared-host inventory, reachability and UID-bound claim/cleanup state |
+| `SSHCluster` / `SSHClusterTemplate` | Cluster infrastructure endpoint and its template |
+| `SSHMachine` / `SSHMachineTemplate` | Machine infrastructure lifecycle and its template |
 
-Delete Machines through CAPI. Cleanup retains the host claim and finalizer until
-owned cleanup succeeds; failed cleanup quarantines the host. Never bypass this
-contract to make a teardown appear successful.
+## Local validation and contribution
 
-## Local validation
-
-From `python/`, the default isolated lane uses the checked-in dependency lock:
+From `python/`, use the checked-in dependency lock:
 
 ```bash
 uv sync --frozen --dev
@@ -169,9 +125,7 @@ Tests include real loopback SSH/TLS endpoints. The separate
 [Kind lifecycle lane](docs/testing.md) uses disposable hosts and an explicit
 test kubeconfig. Unit success alone does not certify a release or live rollout.
 
-## License and contribution
-
-[Apache License 2.0](LICENSE), attribution in [NOTICE](NOTICE). Contributions follow [Conventional Commits](https://www.conventionalcommits.org/)
-and the [Developer Certificate of Origin](DCO); sign commits with `git commit -s`.
-Create a working branch from current `develop` and submit a PR back to `develop`.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for review and documentation requirements.
+[Apache License 2.0](LICENSE), attribution in [NOTICE](NOTICE). Contributions use
+[Conventional Commits](https://www.conventionalcommits.org/) and the
+[Developer Certificate of Origin](DCO); sign commits with `git commit -s`.
+Create a working branch from current `develop` and submit a PR to `develop`.

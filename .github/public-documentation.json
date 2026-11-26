@@ -1,0 +1,7 @@
+{
+  "organization": "alpininsight",
+  "publicRepositories": [
+    "alpininsight/capi-provider-ssh",
+    "alpininsight/.github"
+  ]
+}
