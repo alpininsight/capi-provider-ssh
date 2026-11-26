@@ -54,7 +54,7 @@ WRONG (vendor-centric):            RIGHT (protocol-centric):
   Both speak Redfish!             └──────────────────┘
 ```
 
-Multiple vendors share the same protocol. A single `redfish` plugin handles
+Multiple vendors share the same protocol. A future `redfish` plugin could handle
 HPE iLO 5, Dell iDRAC 9, Lenovo XCC, and Supermicro BMC because they all
 implement the DMTF Redfish standard. Vendor-specific quirks (extended OEM
 schemas) are handled as configuration, not separate plugins.
@@ -69,9 +69,10 @@ schemas) are handled as configuration, not separate plugins.
 | Industrial edge | NVIDIA IGX Orin | OpenBMC with Redfish API | Redfish |
 | Power distribution | APC, Raritan, Server Technology | Smart PDU with per-outlet control | SNMP, HTTP API |
 
-## Final Plugin Taxonomy
+## Proposed plugin categories
 
-Four plugins cover the entire hardware spectrum:
+Four protocol categories are candidates for future driver work. Coverage of an
+individual device or operation requires implementation and dedicated evidence:
 
 | Plugin ID | Protocol | Device Classes | What It Covers |
 |-----------|----------|---------------|---------------|
@@ -80,7 +81,7 @@ Four plugins cover the entire hardware spectrum:
 | `snmp` | SNMP v2c/v3 | Smart PDUs, managed PoE switches | APC, Raritan, Server Technology, CyberPower, any managed PDU with per-outlet MIBs; PoE switches for SBC power control |
 | `gpio` | SSH + GPIO | SBCs, relay boards | Raspberry Pi, Jetson — uses a controller host to toggle GPIO pins connected to power relays |
 
-## Capability Matrix
+## Proposed capability matrix (not implemented)
 
 | Operation | `redfish` | `ipmi` | `snmp` | `gpio` |
 |-----------|-----------|--------|--------|--------|
@@ -104,10 +105,10 @@ metadata:
   labels:
     hardware-plugin: redfish
   annotations:
-    hardware-plugin.alpininsight.ai/endpoint: "https://bmc-42.mgmt.local"
+    hardware-plugin.alpininsight.ai/endpoint: "https://bmc.example.invalid"
     hardware-plugin.alpininsight.ai/secret: "bmc-credentials-42"
 spec:
-  address: 10.0.0.42
+  address: 192.0.2.42
   sshKeyRef:
     name: ssh-key
 ```
@@ -122,11 +123,11 @@ metadata:
   labels:
     hardware-plugin: snmp
   annotations:
-    hardware-plugin.alpininsight.ai/endpoint: "192.168.1.200"
+    hardware-plugin.alpininsight.ai/endpoint: "198.51.100.200"
     hardware-plugin.alpininsight.ai/outlet: "6"
     hardware-plugin.alpininsight.ai/secret: "pdu-community"
 spec:
-  address: 10.0.0.103
+  address: 192.0.2.103
   sshKeyRef:
     name: rpi-ssh-key
 ```
@@ -141,11 +142,11 @@ metadata:
   labels:
     hardware-plugin: gpio
   annotations:
-    hardware-plugin.alpininsight.ai/endpoint: "10.0.0.200"
+    hardware-plugin.alpininsight.ai/endpoint: "198.51.100.201"
     hardware-plugin.alpininsight.ai/pin: "17"
     hardware-plugin.alpininsight.ai/secret: "relay-ssh-key"
 spec:
-  address: 10.0.0.101
+  address: 192.0.2.101
   sshKeyRef:
     name: rpi-ssh-key
 ```
